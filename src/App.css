@@ -1,0 +1,44 @@
+/* App.css — global styles */
+
+/* CSS custom property defaults (SFSU values; overridden at runtime by ThemeCSSVars) */
+:root {
+  --sfsures-primary: #442C8B;
+  --sfsures-accent: #DCAE27;
+  --sfsures-bg: #ffffff;
+  --sfsures-font: Inter, system-ui, -apple-system, sans-serif;
+  --sfsures-radius: 6px;
+}
+
+/* Reset */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--sfsures-font);
+  background-color: var(--sfsures-bg);
+  color: #1a1a1a;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Focus visible — accessible keyboard outline */
+:focus-visible {
+  outline: 2px solid var(--sfsures-primary);
+  outline-offset: 2px;
+}

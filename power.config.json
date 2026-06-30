@@ -1,0 +1,100 @@
+{
+  "version": "1.0",
+  "appId": "ef875e47-9848-432d-a455-c3dea3216008",
+  "appDisplayName": "SFSU Reservation System",
+  "region": "prod",
+  "appType": "CodeApp",
+  "environmentId": "d07aac37-af2f-edd1-967f-a1c94a38461d",
+  "description": " ",
+  "buildPath": "./dist",
+  "buildEntryPoint": "index.html",
+  "localAppUrl": "http://localhost:3000",
+  "logoPath": "Default",
+  "connectionReferences": {
+    "192c1065-e4d1-4f6e-9514-304576595311": {
+      "id": "/providers/Microsoft.PowerApps/apis/shared_office365users",
+      "displayName": "Office 365 Users",
+      "dataSources": [
+        "office365users"
+      ],
+      "dataSets": {}
+    }
+  },
+  "databaseReferences": {
+    "default.cds": {
+      "dataSources": {
+        "appusers": {
+          "entitySetName": "sfsures_appusers",
+          "logicalName": "sfsures_appuser",
+          "isHidden": false
+        },
+        "resourcetypes": {
+          "entitySetName": "sfsures_resourcetypes",
+          "logicalName": "sfsures_resourcetype",
+          "isHidden": false
+        },
+        "attributedefinitions": {
+          "entitySetName": "sfsures_attributedefinitions",
+          "logicalName": "sfsures_attributedefinition",
+          "isHidden": false
+        },
+        "resources": {
+          "entitySetName": "sfsures_resources",
+          "logicalName": "sfsures_resource",
+          "isHidden": false
+        },
+        "resourceattributevalues": {
+          "entitySetName": "sfsures_resourceattributevalues",
+          "logicalName": "sfsures_resourceattributevalue",
+          "isHidden": false
+        },
+        "groups": {
+          "entitySetName": "sfsures_groups",
+          "logicalName": "sfsures_group",
+          "isHidden": false
+        },
+        "usergroupassignments": {
+          "entitySetName": "sfsures_usergroupassignments",
+          "logicalName": "sfsures_usergroupassignment",
+          "isHidden": false
+        },
+        "groupresourcetypeaccesses": {
+          "entitySetName": "sfsures_groupresourcetypeaccesses",
+          "logicalName": "sfsures_groupresourcetypeaccess",
+          "isHidden": false
+        },
+        "groupresourceaccesses": {
+          "entitySetName": "sfsures_groupresourceaccesses",
+          "logicalName": "sfsures_groupresourceaccess",
+          "isHidden": false
+        },
+        "reservationseries": {
+          "entitySetName": "sfsures_reservationserieses",
+          "logicalName": "sfsures_reservationseries",
+          "isHidden": false
+        },
+        "reservationoccurrences": {
+          "entitySetName": "sfsures_reservationoccurrences",
+          "logicalName": "sfsures_reservationoccurrence",
+          "isHidden": false
+        },
+        "blackoutwindows": {
+          "entitySetName": "sfsures_blackoutwindows",
+          "logicalName": "sfsures_blackoutwindow",
+          "isHidden": false
+        },
+        "appsettings": {
+          "entitySetName": "sfsures_appsettingses",
+          "logicalName": "sfsures_appsettings",
+          "isHidden": false
+        },
+        "auditlogs": {
+          "entitySetName": "sfsures_auditlogs",
+          "logicalName": "sfsures_auditlog",
+          "isHidden": false
+        }
+      },
+      "environmentVariableName": ""
+    }
+  }
+}
