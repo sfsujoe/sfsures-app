@@ -28,7 +28,7 @@ const SFSU_DEFAULTS: AppTheme = {
   primaryColor: '#442C8B',
   accentColor: '#DCAE27',
   backgroundColor: '#FFFFFF',
-  logoUrl: '',
+  logoUrl: 'https://sfsu.box.com/shared/static/b3cahvh2dsiozgt5m37kw0pdre8bf5p8.png',
   fontFamily: 'Inter, system-ui, sans-serif',
   borderRadius: 6,
   selectedThemeName: 'SFSU Default',

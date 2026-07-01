@@ -10,11 +10,15 @@
 }
 
 /* Reset */
-*, *::before, *::after {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
 }
 
-html, body, #root {
+html,
+body,
+#root {
   height: 100%;
   width: 100%;
   margin: 0;
@@ -31,14 +35,44 @@ body {
 
 /* Reduced motion */
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
+
+  *,
+  *::before,
+  *::after {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
 }
 
-/* Focus visible — accessible keyboard outline */
-:focus-visible {
-  outline: 2px solid var(--sfsures-primary);
+/* ===========================================================================
+   Visible keyboard focus (WCAG 2.4.7)
+   :focus-visible shows the ring for keyboard / AT users but not on mouse click.
+   outline-offset puts the ring on the surrounding surface, so it stays visible
+   even around a same-colored (e.g. purple) button.
+   Must come AFTER any reset that sets `outline: none`.
+   =========================================================================== */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible,
+[tabindex]:not([tabindex="-1"]):focus-visible {
+  outline: 2px solid var(--sfsures-primary, #442C8B);
   outline-offset: 2px;
+}
+
+/* FullCalendar's toolbar buttons carry focus CSS at higher specificity;
+   this descendant selector (0,3,0) beats it and swaps FC's faint ring
+   for the same clear outline. */
+.fc .fc-button:focus-visible {
+  outline: 2px solid var(--sfsures-primary, #442C8B);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+/* Optional polish: suppress FC's ring when focus came from a mouse click,
+   so its behavior matches :focus-visible everywhere else. */
+.fc .fc-button:focus:not(:focus-visible) {
+  box-shadow: none;
 }

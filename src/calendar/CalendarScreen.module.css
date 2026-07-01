@@ -57,6 +57,7 @@
 .calendarWrap {
   flex: 1 1 auto;
   overflow: hidden;
+  padding: 6px;            /* gives the ring room INSIDE the clip boundary */
 }
 
 /* ---- Loading / error ---- */

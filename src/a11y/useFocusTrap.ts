@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type RefObject } from 'react';
 
 const FOCUSABLE = [
   'a[href]',
@@ -14,8 +14,8 @@ const FOCUSABLE = [
  * and restores focus to the previously-focused element on close.
  * Pairs with the role="dialog" aria-modal + Escape-to-close already on the modal.
  */
-export function useFocusTrap(
-  containerRef: React.RefObject<HTMLElement>,
+export function useFocusTrap<T extends HTMLElement>(
+  containerRef: RefObject<T | null>,
   active: boolean,
 ): void {
   const previouslyFocused = useRef<HTMLElement | null>(null);

@@ -15,6 +15,17 @@
  *     ±90-day window around today on mount. FullCalendar's datesSet callback
  *     triggers a re-fetch when the user navigates outside that window.
  *
+ * Accessibility:
+ *   - "New booking" toolbar button gives a keyboard-operable path to create a
+ *     booking, since FullCalendar's drag-to-select has no keyboard equivalent.
+ *     It opens BookingModal with a sensible default slot (no calendar selection
+ *     needed), which is exactly the situation a keyboard/screen-reader user is in.
+ *   - The event-detail popover is a dialog: focus is trapped while open and
+ *     restored to the triggering event on close (useFocusTrap), named by its
+ *     visible title via aria-labelledby.
+ *   - A page-level polite live region announces booking success. It lives here
+ *     (not in BookingModal) because the modal unmounts on success.
+ *
  * FullCalendar packages required (install before running):
  *   npm install @fullcalendar/react @fullcalendar/daygrid @fullcalendar/timegrid @fullcalendar/interaction
  */
@@ -30,6 +41,7 @@ import { Sfsures_reservationoccurrencesService } from '../generated/services/Sfs
 import { Sfsures_blackoutwindowsService } from '../generated/services/Sfsures_blackoutwindowsService'
 import { useTheme } from '../theme/ThemeContext'
 import { BookingModal } from '../booking/BookingModal'
+import { useFocusTrap } from '../a11y/useFocusTrap'
 import styles from './CalendarScreen.module.css'
 
 // ---------------------------------------------------------------------------
@@ -62,6 +74,19 @@ interface BlackoutRow {
 function toIso(val: string | undefined | null): string {
   if (!val) return ''
   return val
+}
+
+/**
+ * Default slot for the keyboard "New booking" path: next top of the hour,
+ * one hour long. The user adjusts start/end/resource in the modal.
+ */
+function nextHourSlot(): { start: Date; end: Date } {
+  const start = new Date()
+  start.setMinutes(0, 0, 0)
+  start.setHours(start.getHours() + 1)
+  const end = new Date(start)
+  end.setHours(end.getHours() + 1)
+  return { start, end }
 }
 
 function occurrenceToEvent(row: OccurrenceRow, primaryColor: string): EventInput {
@@ -121,8 +146,25 @@ export function CalendarScreen() {
   // Booking modal state — non-null when the modal is open.
   const [bookingSlot, setBookingSlot] = useState<{ start: Date; end: Date } | null>(null)
 
+  // Page-level live region text (announces booking success after the modal unmounts).
+  const [liveMessage, setLiveMessage] = useState('')
+
+  // Focus trap for the event-detail popover (active only while it is open).
+  const popoverRef = useRef<HTMLDivElement>(null)
+  useFocusTrap(popoverRef, !!selectedEvent)
+
   // Track the loaded date range so we don't re-fetch unnecessarily.
   const loadedRangeRef = useRef<{ start: Date; end: Date } | null>(null)
+
+  /**
+   * Announce a message in the page-level live region. Clears first, then sets on
+   * a later tick, so repeating the same message (e.g. two bookings in a row) still
+   * registers as a content change and re-announces.
+   */
+  const announce = useCallback((msg: string) => {
+    setLiveMessage('')
+    window.setTimeout(() => setLiveMessage(msg), 60)
+  }, [])
 
   // ---------------------------------------------------------------------------
   // Data loading
@@ -265,6 +307,12 @@ export function CalendarScreen() {
 
   return (
     <div className={styles.shell}>
+      {/* Page-level live region: announces booking success (modal unmounts before
+          it could announce its own success). Always mounted, visually hidden. */}
+      <div className={styles.srOnly} role="status" aria-live="polite" aria-atomic="true">
+        {liveMessage}
+      </div>
+
       {/* Header */}
       <header className={styles.header} style={{ backgroundColor: theme.primaryColor }}>
         <div className={styles.headerInner}>
@@ -275,7 +323,7 @@ export function CalendarScreen() {
               className={styles.logo}
             />
           )}
-          <h1 className={styles.headerTitle}>Resource Reservations</h1>
+          <h1 className={styles.headerTitle}>SFSU Resource Reservations</h1>
         </div>
       </header>
 
@@ -302,12 +350,23 @@ export function CalendarScreen() {
             ref={calendarRef}
             plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
             initialView="timeGridWeek"
+            customButtons={{
+              newBooking: {
+                text: 'New booking',
+                // Keyboard-operable path: opens the modal with a default slot,
+                // no calendar selection required.
+                click: () => setBookingSlot(nextHourSlot()),
+              },
+            }}
             headerToolbar={{
-              left: 'prev,next today',
+              left: 'newBooking prev,next today',
               center: 'title',
               right: 'dayGridMonth,timeGridWeek,timeGridDay',
             }}
+            buttonIcons={false}
             buttonText={{
+              prev: '◀',
+              next: '▶',
               today: 'Today',
               month: 'Month',
               week: 'Week',
@@ -333,14 +392,16 @@ export function CalendarScreen() {
         <div
           className={styles.popoverBackdrop}
           onClick={() => setSelectedEvent(null)}
-          role="dialog"
-          aria-modal="true"
-          aria-label="Reservation details"
         >
           <div
+            ref={popoverRef}
             className={styles.popover}
             style={{ borderTopColor: theme.primaryColor }}
             onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="event-popover-title"
+            tabIndex={-1}
           >
             <button
               className={styles.popoverClose}
@@ -353,7 +414,7 @@ export function CalendarScreen() {
             {selectedEvent.extendedProps?.type === 'blackout' ? (
               <>
                 <p className={styles.popoverLabel}>Maintenance / Blackout window</p>
-                <h2 className={styles.popoverTitle}>
+                <h2 id="event-popover-title" className={styles.popoverTitle}>
                   {String(selectedEvent.title).replace('🚫 ', '')}
                 </h2>
                 <p className={styles.popoverDetail}>
@@ -375,7 +436,7 @@ export function CalendarScreen() {
                 >
                   Reservation
                 </p>
-                <h2 className={styles.popoverTitle}>
+                <h2 id="event-popover-title" className={styles.popoverTitle}>
                   {selectedEvent.title as string}
                 </h2>
                 {selectedEvent.extendedProps?.owner && (
@@ -404,6 +465,7 @@ export function CalendarScreen() {
           onBooked={() => {
             setBookingSlot(null)
             refreshCalendar()
+            announce('Booking confirmed.')
           }}
         />
       )}

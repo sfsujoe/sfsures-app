@@ -18,14 +18,27 @@
  * Resource-scope check (group membership) is TODO — for now the picker shows
  * all active resources. The Dataverse security role is still the real boundary;
  * this is a UX filter, not a security gate.
+ *
+ * Accessibility:
+ *   - role="dialog" + aria-modal + aria-labelledby (named by the visible title)
+ *   - Focus is trapped inside the dialog while open and restored to the trigger
+ *     on close (useFocusTrap)
+ *   - Escape closes
+ *   - Status (validation / conflict / error) is mirrored into an always-mounted
+ *     assertive live region so screen readers hear it without moving focus. The
+ *     visual banner below is unchanged and remains navigable for full detail.
+ *   - Success is NOT announced here: the modal unmounts on success, so a live
+ *     region in it cannot reliably fire. Success is announced from a page-level
+ *     live region in CalendarScreen (wired in the next file).
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Sfsures_resourcesService } from '../generated/services/Sfsures_resourcesService'
 import { Sfsures_reservationoccurrencesService } from '../generated/services/Sfsures_reservationoccurrencesService'
 import { Sfsures_blackoutwindowsService } from '../generated/services/Sfsures_blackoutwindowsService'
 import { useTheme } from '../theme/ThemeContext'
 import { useCurrentUser } from '../auth/UserContext'
+import { useFocusTrap } from '../a11y/useFocusTrap'
 import styles from './BookingModal.module.css'
 
 // ---------------------------------------------------------------------------
@@ -96,6 +109,10 @@ function formatRange(startIso: string, endIso: string): string {
 export function BookingModal({ start, end, onClose, onBooked }: BookingModalProps) {
   const { theme } = useTheme()
   const currentUser = useCurrentUser()
+
+  // ---- Focus trap: contain Tab inside the dialog, restore focus on close ----
+  const dialogRef = useRef<HTMLDivElement>(null)
+  useFocusTrap(dialogRef, true) // modal only mounts when open → active while mounted
 
   // ---- Resource list ----
   const [resources, setResources] = useState<ResourceOption[]>([])
@@ -260,6 +277,8 @@ export function BookingModal({ start, end, onClose, onBooked }: BookingModalProp
     } as unknown as Parameters<typeof Sfsures_reservationoccurrencesService.create>[0])
 
       // Success — close modal and trigger calendar refresh.
+      // (Success is announced from CalendarScreen's page-level live region, since
+      // this component unmounts here.)
       onBooked()
     } catch (err) {
       console.error('Booking failed:', err)
@@ -286,21 +305,30 @@ export function BookingModal({ start, end, onClose, onBooked }: BookingModalProp
   const canSubmit = !!selectedResourceId && !!startStr && !!endStr && !saving
 
   return (
-    <div
-      className={styles.backdrop}
-      onClick={onClose}
-      role="dialog"
-      aria-modal="true"
-      aria-label="New booking"
-    >
+    <div className={styles.backdrop} onClick={onClose}>
       <div
+        ref={dialogRef}
         className={styles.modal}
         style={{ borderTopColor: theme.primaryColor }}
         onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="booking-modal-title"
+        tabIndex={-1}
       >
+        {/*
+          Always-mounted assertive live region. Screen readers announce changes to
+          its text without focus moving. Kept visually hidden; the visual banner
+          below carries the same information (plus the conflict list) for sighted
+          users and stays navigable for screen-reader users who want detail.
+        */}
+        <div className={styles.srOnly} role="alert" aria-live="assertive" aria-atomic="true">
+          {error}
+        </div>
+
         {/* Header */}
         <div className={styles.header}>
-          <h2 className={styles.title}>New Booking</h2>
+          <h2 id="booking-modal-title" className={styles.title}>New Booking</h2>
           <button
             className={styles.closeBtn}
             onClick={onClose}
@@ -383,7 +411,9 @@ export function BookingModal({ start, end, onClose, onBooked }: BookingModalProp
             </div>
           </div>
 
-          {/* Error / conflict banner */}
+          {/* Error / conflict banner (visual). aria-hidden is intentionally NOT set —
+              screen-reader users can navigate here for the full conflict list; the
+              live region above handles the automatic announcement. */}
           {error && (
             <div className={styles.errorBanner}>
               <strong>{error}</strong>
