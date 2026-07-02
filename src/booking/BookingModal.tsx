@@ -9,8 +9,9 @@
  *   2. User adjusts start/end if needed
  *   3. On "Book": conflict detection runs first (delegable overlap query against
  *      active occurrences + blackout windows for the selected resource)
- *   4. If clear → create one sfsures_reservationoccurrence row → close + refresh
- *   5. If conflicts → show details, don't write
+ *   4. If clear -> create one sfsures_reservationoccurrence row
+ *   5. Show an in-dialog confirmation with OK focused by default
+ *   6. If conflicts -> show details, don't write
  *
  * The Booking Owner is set from UserContext (the authenticated user's App User
  * record, populated by AccessGate on startup). Series is null (single booking).
@@ -27,9 +28,7 @@
  *   - Status (validation / conflict / error) is mirrored into an always-mounted
  *     assertive live region so screen readers hear it without moving focus. The
  *     visual banner below is unchanged and remains navigable for full detail.
- *   - Success is NOT announced here: the modal unmounts on success, so a live
- *     region in it cannot reliably fire. Success is announced from a page-level
- *     live region in CalendarScreen (wired in the next file).
+ *   - Success stays in this same centered dialog instead of a page banner.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -52,7 +51,7 @@ interface BookingModalProps {
   end: Date
   /** Close the modal without booking */
   onClose: () => void
-  /** Called after a successful create — CalendarScreen uses this to refresh */
+  /** Called after a successful create/update — CalendarScreen uses this to refresh */
   onBooked: () => void
 }
 
@@ -68,6 +67,10 @@ interface ConflictInfo {
   ownerName?: string
   reason?: string
 }
+
+type ModalMode = 'form' | 'success'
+type SaveMode = 'create' | 'edit'
+type SuccessKind = 'created' | 'updated'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -102,6 +105,32 @@ function formatRange(startIso: string, endIso: string): string {
   return `${date}, ${t1} – ${t2}`
 }
 
+function formatInputRange(startValue: string, endValue: string): string {
+  const start = fromDatetimeLocal(startValue)
+  const end = fromDatetimeLocal(endValue)
+
+  if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+    return ''
+  }
+
+  const date = start.toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  })
+  const startTime = start.toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+  const endTime = end.toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+
+  return `${date}, ${startTime} to ${endTime}`
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -113,6 +142,7 @@ export function BookingModal({ start, end, onClose, onBooked }: BookingModalProp
   // ---- Focus trap: contain Tab inside the dialog, restore focus on close ----
   const dialogRef = useRef<HTMLDivElement>(null)
   useFocusTrap(dialogRef, true) // modal only mounts when open → active while mounted
+  const okButtonRef = useRef<HTMLButtonElement>(null)
 
   // ---- Resource list ----
   const [resources, setResources] = useState<ResourceOption[]>([])
@@ -123,10 +153,32 @@ export function BookingModal({ start, end, onClose, onBooked }: BookingModalProp
   const [startStr, setStartStr] = useState(toDatetimeLocal(start))
   const [endStr, setEndStr] = useState(toDatetimeLocal(end))
 
+  // ---- Modal flow state ----
+  const [mode, setMode] = useState<ModalMode>('form')
+  const [saveMode, setSaveMode] = useState<SaveMode>('create')
+  const [successKind, setSuccessKind] = useState<SuccessKind>('created')
+  const [bookingId, setBookingId] = useState<string | null>(null)
+
   // ---- Submission state ----
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [conflicts, setConflicts] = useState<ConflictInfo[]>([])
+
+  const selectedResourceName =
+    resources.find((resource) => resource.id === selectedResourceId)?.name ?? 'Selected resource'
+  const successTitle = successKind === 'updated' ? 'Booking Updated' : 'Booking Confirmed'
+  const successMessage =
+    successKind === 'updated'
+      ? 'Your booking changes have been saved.'
+      : 'Your booking has been saved.'
+  const titleId = mode === 'success' ? 'booking-success-title' : 'booking-modal-title'
+  const descriptionId = mode === 'success' ? 'booking-success-description' : undefined
+
+  useEffect(() => {
+    if (mode !== 'success') return
+    const timer = window.setTimeout(() => okButtonRef.current?.focus(), 0)
+    return () => window.clearTimeout(timer)
+  }, [mode, successKind])
 
   // ---- Load active resources on mount ----
   useEffect(() => {
@@ -141,7 +193,7 @@ export function BookingModal({ start, end, onClose, onBooked }: BookingModalProp
           top: 200,
         })
 
-       const opts: ResourceOption[] = (result.data ?? []).map((r) => ({
+        const opts: ResourceOption[] = (result.data ?? []).map((r) => ({
           id: r.sfsures_resourceid,
           name: r.sfsures_name ?? 'Unnamed',
         }))
@@ -162,6 +214,14 @@ export function BookingModal({ start, end, onClose, onBooked }: BookingModalProp
 
     load()
   }, [])
+
+  const handleEditBooking = useCallback(() => {
+    if (!bookingId) return
+    setError('')
+    setConflicts([])
+    setSaveMode('edit')
+    setMode('form')
+  }, [bookingId])
 
   // ---- Submit handler ----
   const handleSubmit = useCallback(async () => {
@@ -195,10 +255,21 @@ export function BookingModal({ start, end, onClose, onBooked }: BookingModalProp
     setSaving(true)
 
     try {
+      const isEditing = saveMode === 'edit'
+      if (isEditing && !bookingId) {
+        setError('Could not reopen this booking for editing. Close the dialog and try again.')
+        setSaving(false)
+        return
+      }
+
       // --- Conflict detection ---
       // Overlap condition: existing.start < new.end AND existing.end > new.start
       const startIso = toDataverseIso(startDate)
       const endIso = toDataverseIso(endDate)
+      const excludeCurrentBooking =
+        isEditing && bookingId
+          ? ` and sfsures_reservationoccurrenceid ne ${bookingId}`
+          : ''
 
       const [occResult, blackoutResult] = await Promise.all([
         // Active occurrences for this resource that overlap the requested window.
@@ -212,7 +283,8 @@ export function BookingModal({ start, end, onClose, onBooked }: BookingModalProp
             `_sfsures_resource_value eq ${selectedResourceId}` +
             ` and sfsures_recordstatus eq 997330000` +
             ` and sfsures_start lt ${endIso}` +
-            ` and sfsures_end gt ${startIso}`,
+            ` and sfsures_end gt ${startIso}` +
+            excludeCurrentBooking,
           top: 10,
         }),
         // Blackout windows for this resource that overlap the requested window.
@@ -262,23 +334,33 @@ export function BookingModal({ start, end, onClose, onBooked }: BookingModalProp
         return
       }
 
-      // --- No conflicts — create the occurrence ---
-      // Lookup fields: the generated create() type is over-strict (marks system-
-      // defaulted fields as required). Cast to satisfy it. The lookup field names
-      // use the Dataverse _fieldname_value convention for single-valued navigation
-      // properties. If these names don't match your generated model, the API call
-      // will fail at runtime — check src/generated/models/Sfsures_reservationoccurrencesModel.ts
-      // and adjust.
-      await Sfsures_reservationoccurrencesService.create({
-      sfsures_start: startIso,
-      sfsures_end: endIso,
-      sfsures_recordstatus: 997330000,'sfsures_Resource@odata.bind': `/sfsures_resources(${selectedResourceId})`,
-      'sfsures_BookingOwner@odata.bind': `/sfsures_appusers(${currentUser.appUserId})`,
-    } as unknown as Parameters<typeof Sfsures_reservationoccurrencesService.create>[0])
+      // --- No conflicts — create or update the occurrence ---
+      // Lookup writes use @odata.bind navigation properties. The generated type is
+      // over-strict for system-defaulted fields, so cast at the service boundary.
+      const occurrenceFields = {
+        sfsures_start: startIso,
+        sfsures_end: endIso,
+        sfsures_recordstatus: 997330000,
+        'sfsures_Resource@odata.bind': `/sfsures_resources(${selectedResourceId})`,
+        'sfsures_BookingOwner@odata.bind': `/sfsures_appusers(${currentUser.appUserId})`,
+      }
 
-      // Success — close modal and trigger calendar refresh.
-      // (Success is announced from CalendarScreen's page-level live region, since
-      // this component unmounts here.)
+      if (isEditing && bookingId) {
+        await Sfsures_reservationoccurrencesService.update(
+          bookingId,
+          occurrenceFields as unknown as Parameters<typeof Sfsures_reservationoccurrencesService.update>[1]
+        )
+        setSuccessKind('updated')
+      } else {
+        const result = await Sfsures_reservationoccurrencesService.create(
+          occurrenceFields as unknown as Parameters<typeof Sfsures_reservationoccurrencesService.create>[0]
+        )
+        setBookingId(result.data?.sfsures_reservationoccurrenceid ?? null)
+        setSaveMode('edit')
+        setSuccessKind('created')
+      }
+
+      setMode('success')
       onBooked()
     } catch (err) {
       console.error('Booking failed:', err)
@@ -290,7 +372,7 @@ export function BookingModal({ start, end, onClose, onBooked }: BookingModalProp
     } finally {
       setSaving(false)
     }
-  }, [selectedResourceId, startStr, endStr, currentUser, onBooked])
+  }, [selectedResourceId, startStr, endStr, currentUser, saveMode, bookingId, onBooked])
 
   // ---- Keyboard: Escape closes ----
   useEffect(() => {
@@ -303,6 +385,7 @@ export function BookingModal({ start, end, onClose, onBooked }: BookingModalProp
 
   // ---- Render ----
   const canSubmit = !!selectedResourceId && !!startStr && !!endStr && !saving
+  const submitLabel = saveMode === 'edit' ? 'Save Changes' : 'Book'
 
   return (
     <div className={styles.backdrop} onClick={onClose}>
@@ -313,7 +396,8 @@ export function BookingModal({ start, end, onClose, onBooked }: BookingModalProp
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
-        aria-labelledby="booking-modal-title"
+        aria-labelledby={titleId}
+        aria-describedby={descriptionId}
         tabIndex={-1}
       >
         {/*
@@ -328,126 +412,173 @@ export function BookingModal({ start, end, onClose, onBooked }: BookingModalProp
 
         {/* Header */}
         <div className={styles.header}>
-          <h2 id="booking-modal-title" className={styles.title}>New Booking</h2>
-          <button
-            className={styles.closeBtn}
-            onClick={onClose}
-            aria-label="Close"
-          >
-            ×
-          </button>
-        </div>
-
-        {/* Body */}
-        <div className={styles.body}>
-          {/* Resource picker */}
-          <div className={styles.field}>
-            <label className={styles.label} htmlFor="booking-resource">
-              Resource
-            </label>
-            {resourcesLoading ? (
-              <p className={styles.resourcesLoading}>
-                <span className={styles.spinner} style={{ borderTopColor: theme.primaryColor }} />
-                Loading resources…
-              </p>
-            ) : resources.length === 0 ? (
-              <p className={styles.resourcesLoading}>
-                No active resources found. Contact your administrator.
-              </p>
-            ) : (
-              <select
-                id="booking-resource"
-                className={styles.select}
-                value={selectedResourceId}
-                onChange={(e) => {
-                  setSelectedResourceId(e.target.value)
-                  setConflicts([])
-                  setError('')
-                }}
-              >
-                <option value="">Select a resource…</option>
-                {resources.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.name}
-                  </option>
-                ))}
-              </select>
-            )}
-          </div>
-
-          {/* Start / End */}
-          <div className={styles.timeRow}>
-            <div className={styles.field}>
-              <label className={styles.label} htmlFor="booking-start">
-                Start
-              </label>
-              <input
-                id="booking-start"
-                type="datetime-local"
-                className={styles.input}
-                value={startStr}
-                onChange={(e) => {
-                  setStartStr(e.target.value)
-                  setConflicts([])
-                  setError('')
-                }}
-              />
-            </div>
-            <div className={styles.field}>
-              <label className={styles.label} htmlFor="booking-end">
-                End
-              </label>
-              <input
-                id="booking-end"
-                type="datetime-local"
-                className={styles.input}
-                value={endStr}
-                onChange={(e) => {
-                  setEndStr(e.target.value)
-                  setConflicts([])
-                  setError('')
-                }}
-              />
-            </div>
-          </div>
-
-          {/* Error / conflict banner (visual). aria-hidden is intentionally NOT set —
-              screen-reader users can navigate here for the full conflict list; the
-              live region above handles the automatic announcement. */}
-          {error && (
-            <div className={styles.errorBanner}>
-              <strong>{error}</strong>
-              {conflicts.length > 0 && (
-                <ul className={styles.conflictList}>
-                  {conflicts.slice(0, 3).map((c, i) => (
-                    <li key={i}>
-                      {c.type === 'blackout'
-                        ? `Maintenance: ${formatRange(c.start, c.end)}${c.reason ? ` — ${c.reason}` : ''}`
-                        : `Booking: ${formatRange(c.start, c.end)}${c.ownerName ? ` (${c.ownerName})` : ''}`}
-                    </li>
-                  ))}
-                  {conflicts.length > 3 && (
-                    <li>…and {conflicts.length - 3} more</li>
-                  )}
-                </ul>
-              )}
-            </div>
+          <h2 id={titleId} className={styles.title}>
+            {mode === 'success'
+              ? successTitle
+              : saveMode === 'edit'
+                ? 'Edit Booking'
+                : 'New Booking'}
+          </h2>
+          {mode === 'form' && (
+            <button
+              className={styles.closeBtn}
+              onClick={onClose}
+              aria-label="Close"
+            >
+              ×
+            </button>
           )}
         </div>
 
+        {mode === 'success' ? (
+          <div className={styles.body}>
+            <div
+              id="booking-success-description"
+              className={styles.successPanel}
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+            >
+              <p className={styles.successMessage}>{successMessage}</p>
+              <div className={styles.successSummary}>
+                <p className={styles.summaryResource}>{selectedResourceName}</p>
+                <p className={styles.summaryTime}>{formatInputRange(startStr, endStr)}</p>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className={styles.body}>
+            {/* Resource picker */}
+            <div className={styles.field}>
+              <label className={styles.label} htmlFor="booking-resource">
+                Resource
+              </label>
+              {resourcesLoading ? (
+                <p className={styles.resourcesLoading}>
+                  <span className={styles.spinner} style={{ borderTopColor: theme.primaryColor }} />
+                  Loading resources…
+                </p>
+              ) : resources.length === 0 ? (
+                <p className={styles.resourcesLoading}>
+                  No active resources found. Contact your administrator.
+                </p>
+              ) : (
+                <select
+                  id="booking-resource"
+                  className={styles.select}
+                  value={selectedResourceId}
+                  onChange={(e) => {
+                    setSelectedResourceId(e.target.value)
+                    setConflicts([])
+                    setError('')
+                  }}
+                >
+                  <option value="">Select a resource…</option>
+                  {resources.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+
+            {/* Start / End */}
+            <div className={styles.timeRow}>
+              <div className={styles.field}>
+                <label className={styles.label} htmlFor="booking-start">
+                  Start
+                </label>
+                <input
+                  id="booking-start"
+                  type="datetime-local"
+                  className={styles.input}
+                  value={startStr}
+                  onChange={(e) => {
+                    setStartStr(e.target.value)
+                    setConflicts([])
+                    setError('')
+                  }}
+                />
+              </div>
+              <div className={styles.field}>
+                <label className={styles.label} htmlFor="booking-end">
+                  End
+                </label>
+                <input
+                  id="booking-end"
+                  type="datetime-local"
+                  className={styles.input}
+                  value={endStr}
+                  onChange={(e) => {
+                    setEndStr(e.target.value)
+                    setConflicts([])
+                    setError('')
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Error / conflict banner (visual). aria-hidden is intentionally NOT set —
+                screen-reader users can navigate here for the full conflict list; the
+                live region above handles the automatic announcement. */}
+            {error && (
+              <div className={styles.errorBanner}>
+                <strong>{error}</strong>
+                {conflicts.length > 0 && (
+                  <ul className={styles.conflictList}>
+                    {conflicts.slice(0, 3).map((c, i) => (
+                      <li key={i}>
+                        {c.type === 'blackout'
+                          ? `Maintenance: ${formatRange(c.start, c.end)}${c.reason ? ` — ${c.reason}` : ''}`
+                          : `Booking: ${formatRange(c.start, c.end)}${c.ownerName ? ` (${c.ownerName})` : ''}`}
+                      </li>
+                    ))}
+                    {conflicts.length > 3 && (
+                      <li>…and {conflicts.length - 3} more</li>
+                    )}
+                  </ul>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Footer */}
         <div className={styles.footer}>
-          <button className={styles.btnSecondary} onClick={onClose} disabled={saving}>
-            Cancel
-          </button>
-          <button
-            className={styles.btnPrimary}
-            style={{ backgroundColor: theme.primaryColor }}
-            onClick={handleSubmit}
-            disabled={!canSubmit}
-          >
-            {saving ? 'Booking…' : 'Book'}
-          </button>
+          {mode === 'success' ? (
+            <>
+              <button
+                className={styles.btnSecondary}
+                onClick={handleEditBooking}
+                disabled={!bookingId}
+              >
+                Edit Booking
+              </button>
+              <button
+                ref={okButtonRef}
+                className={styles.btnPrimary}
+                style={{ backgroundColor: theme.primaryColor }}
+                onClick={onClose}
+              >
+                OK
+              </button>
+            </>
+          ) : (
+            <>
+              <button className={styles.btnSecondary} onClick={onClose} disabled={saving}>
+                Cancel
+              </button>
+              <button
+                className={styles.btnPrimary}
+                style={{ backgroundColor: theme.primaryColor }}
+                onClick={handleSubmit}
+                disabled={!canSubmit}
+              >
+                {saving ? 'Booking…' : submitLabel}
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>

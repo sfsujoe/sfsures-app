@@ -19,9 +19,9 @@
 }
 
 .headerInner {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
-  gap: 0.875rem;
   height: 56px;
   max-width: 1400px;
   margin: 0 auto;
@@ -29,17 +29,33 @@
 }
 
 .logo {
+  grid-column: 1;
+  justify-self: start;
   height: 32px;
   width: auto;
+  max-width: min(220px, 100%);
   object-fit: contain;
 }
 
+.logoFallback {
+  grid-column: 1;
+  justify-self: start;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #ffffff;
+  opacity: 0.85;
+}
+
 .headerTitle {
+  grid-column: 2;
+  justify-self: center;
   font-size: 1.0625rem;
   font-weight: 600;
   color: #ffffff;
   margin: 0;
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
+  text-align: center;
+  white-space: nowrap;
 }
 
 /* ---- Main ---- */
@@ -243,6 +259,7 @@
 
   .headerTitle {
     font-size: 0.9375rem;
+    white-space: normal;
   }
 
   .calendarWrap :global(.fc .fc-toolbar) {

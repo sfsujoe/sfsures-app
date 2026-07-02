@@ -13,6 +13,7 @@
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import { Sfsures_appsettingsesService } from '../generated/services/Sfsures_appsettingsesService'
+import sfsuDefaultLogoUrl from '../assets/sfsu-logo.png'
 
 export interface AppTheme {
   primaryColor: string    // hex with #, e.g. #442C8B
@@ -28,10 +29,14 @@ const SFSU_DEFAULTS: AppTheme = {
   primaryColor: '#442C8B',
   accentColor: '#DCAE27',
   backgroundColor: '#FFFFFF',
-  logoUrl: 'https://sfsu.box.com/shared/static/b3cahvh2dsiozgt5m37kw0pdre8bf5p8.png',
+  logoUrl: sfsuDefaultLogoUrl,
   fontFamily: 'Inter, system-ui, sans-serif',
   borderRadius: 6,
   selectedThemeName: 'SFSU Default',
+}
+
+function themeText(value: string | undefined | null, fallback: string): string {
+  return value?.trim() || fallback
 }
 
 interface ThemeContextValue {
@@ -69,13 +74,16 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         const row = result.data?.[0]
         if (row) {
           setTheme({
-            primaryColor: row.sfsures_primarycolor ?? SFSU_DEFAULTS.primaryColor,
-            accentColor: row.sfsures_accentcolor ?? SFSU_DEFAULTS.accentColor,
-            backgroundColor: row.sfsures_backgroundcolor ?? SFSU_DEFAULTS.backgroundColor,
-            logoUrl: row.sfsures_logo ?? '',
-            fontFamily: row.sfsures_fontfamily ?? SFSU_DEFAULTS.fontFamily,
+            primaryColor: themeText(row.sfsures_primarycolor, SFSU_DEFAULTS.primaryColor),
+            accentColor: themeText(row.sfsures_accentcolor, SFSU_DEFAULTS.accentColor),
+            backgroundColor: themeText(row.sfsures_backgroundcolor, SFSU_DEFAULTS.backgroundColor),
+            logoUrl: themeText(row.sfsures_logo, SFSU_DEFAULTS.logoUrl),
+            fontFamily: themeText(row.sfsures_fontfamily, SFSU_DEFAULTS.fontFamily),
             borderRadius: row.sfsures_borderradiuspx ?? SFSU_DEFAULTS.borderRadius,
-            selectedThemeName: row.sfsures_selectedthemename ?? SFSU_DEFAULTS.selectedThemeName,
+            selectedThemeName: themeText(
+              row.sfsures_selectedthemename,
+              SFSU_DEFAULTS.selectedThemeName
+            ),
           })
         }
         // If no active row: stay on defaults — a fresh instance still renders correctly.

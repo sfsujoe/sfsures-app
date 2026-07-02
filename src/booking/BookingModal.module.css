@@ -131,6 +131,41 @@
   line-height: 1.6;
 }
 
+/* ---- Success confirmation ---- */
+
+.successPanel {
+  border: 1px solid rgba(68, 44, 139, 0.18);
+  background: rgba(68, 44, 139, 0.05);
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.successMessage {
+  margin: 0 0 0.75rem;
+  font-size: 0.9375rem;
+  color: #1a1a1a;
+  line-height: 1.5;
+}
+
+.successSummary {
+  border-top: 1px solid rgba(68, 44, 139, 0.14);
+  padding-top: 0.75rem;
+}
+
+.summaryResource {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: #1a1a1a;
+}
+
+.summaryTime {
+  margin: 0.25rem 0 0;
+  font-size: 0.875rem;
+  color: #555;
+  line-height: 1.45;
+}
+
 /* ---- Footer ---- */
 
 .footer {

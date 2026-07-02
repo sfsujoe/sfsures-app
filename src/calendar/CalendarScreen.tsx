@@ -23,8 +23,6 @@
  *   - The event-detail popover is a dialog: focus is trapped while open and
  *     restored to the triggering event on close (useFocusTrap), named by its
  *     visible title via aria-labelledby.
- *   - A page-level polite live region announces booking success. It lives here
- *     (not in BookingModal) because the modal unmounts on success.
  *
  * FullCalendar packages required (install before running):
  *   npm install @fullcalendar/react @fullcalendar/daygrid @fullcalendar/timegrid @fullcalendar/interaction
@@ -42,6 +40,7 @@ import { Sfsures_blackoutwindowsService } from '../generated/services/Sfsures_bl
 import { useTheme } from '../theme/ThemeContext'
 import { BookingModal } from '../booking/BookingModal'
 import { useFocusTrap } from '../a11y/useFocusTrap'
+import sfsuDefaultLogoUrl from '../assets/sfsu-logo.png'
 import styles from './CalendarScreen.module.css'
 
 // ---------------------------------------------------------------------------
@@ -142,12 +141,11 @@ export function CalendarScreen() {
   const [loadStatus, setLoadStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [errorMessage, setErrorMessage] = useState('')
   const [selectedEvent, setSelectedEvent] = useState<EventInput | null>(null)
+  const [activeLogoUrl, setActiveLogoUrl] = useState(theme.logoUrl || sfsuDefaultLogoUrl)
+  const [logoLoadFailed, setLogoLoadFailed] = useState(false)
 
   // Booking modal state — non-null when the modal is open.
   const [bookingSlot, setBookingSlot] = useState<{ start: Date; end: Date } | null>(null)
-
-  // Page-level live region text (announces booking success after the modal unmounts).
-  const [liveMessage, setLiveMessage] = useState('')
 
   // Focus trap for the event-detail popover (active only while it is open).
   const popoverRef = useRef<HTMLDivElement>(null)
@@ -156,19 +154,25 @@ export function CalendarScreen() {
   // Track the loaded date range so we don't re-fetch unnecessarily.
   const loadedRangeRef = useRef<{ start: Date; end: Date } | null>(null)
 
-  /**
-   * Announce a message in the page-level live region. Clears first, then sets on
-   * a later tick, so repeating the same message (e.g. two bookings in a row) still
-   * registers as a content change and re-announces.
-   */
-  const announce = useCallback((msg: string) => {
-    setLiveMessage('')
-    window.setTimeout(() => setLiveMessage(msg), 60)
-  }, [])
-
   // ---------------------------------------------------------------------------
   // Data loading
   // ---------------------------------------------------------------------------
+
+  useEffect(() => {
+    setActiveLogoUrl(theme.logoUrl || sfsuDefaultLogoUrl)
+    setLogoLoadFailed(false)
+  }, [theme.logoUrl])
+
+  const handleLogoError = useCallback(() => {
+    if (activeLogoUrl !== sfsuDefaultLogoUrl) {
+      console.warn('Configured logo failed to load; using bundled default logo:', activeLogoUrl)
+      setActiveLogoUrl(sfsuDefaultLogoUrl)
+      return
+    }
+
+    console.warn('Bundled default logo failed to load.')
+    setLogoLoadFailed(true)
+  }, [activeLogoUrl])
 
   const loadRange = useCallback(
     async (rangeStart: Date, rangeEnd: Date) => {
@@ -307,21 +311,24 @@ export function CalendarScreen() {
 
   return (
     <div className={styles.shell}>
-      {/* Page-level live region: announces booking success (modal unmounts before
-          it could announce its own success). Always mounted, visually hidden. */}
-      <div className={styles.srOnly} role="status" aria-live="polite" aria-atomic="true">
-        {liveMessage}
-      </div>
-
       {/* Header */}
       <header className={styles.header} style={{ backgroundColor: theme.primaryColor }}>
         <div className={styles.headerInner}>
-          {theme.logoUrl && (
+          {activeLogoUrl && !logoLoadFailed ? (
             <img
-              src={theme.logoUrl}
-              alt="SFSU logo"
+              src={activeLogoUrl}
+              alt=""
+              aria-hidden="true"
               className={styles.logo}
+              title={
+                activeLogoUrl === sfsuDefaultLogoUrl && theme.logoUrl !== sfsuDefaultLogoUrl
+                  ? 'Using default logo because the configured logo did not load.'
+                  : undefined
+              }
+              onError={handleLogoError}
             />
+          ) : (
+            <span className={styles.logoFallback}>Logo unavailable</span>
           )}
           <h1 className={styles.headerTitle}>SFSU Resource Reservations</h1>
         </div>
@@ -463,9 +470,7 @@ export function CalendarScreen() {
           end={bookingSlot.end}
           onClose={() => setBookingSlot(null)}
           onBooked={() => {
-            setBookingSlot(null)
             refreshCalendar()
-            announce('Booking confirmed.')
           }}
         />
       )}
