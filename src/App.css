@@ -1,11 +1,43 @@
 /* App.css — global styles */
 
+@font-face {
+  font-family: 'Source Sans 3';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./assets/fonts/SourceSans3-Regular.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'Source Sans 3';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('./assets/fonts/SourceSans3-Medium.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'Source Sans 3';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('./assets/fonts/SourceSans3-SemiBold.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'Source Sans 3';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('./assets/fonts/SourceSans3-Bold.ttf') format('truetype');
+}
+
 /* CSS custom property defaults (SFSU values; overridden at runtime by ThemeCSSVars) */
 :root {
   --sfsures-primary: #442C8B;
   --sfsures-accent: #DCAE27;
   --sfsures-bg: #ffffff;
-  --sfsures-font: Inter, system-ui, -apple-system, sans-serif;
+  --sfsures-font: 'Source Sans 3', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --sfsures-radius: 6px;
 }
 

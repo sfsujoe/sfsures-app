@@ -7,7 +7,7 @@
   flex-direction: column;
   height: 100dvh;
   overflow: hidden;
-  font-family: var(--sfsures-font, Inter, system-ui, sans-serif);
+  font-family: var(--sfsures-font, 'Source Sans 3', system-ui, -apple-system, 'Segoe UI', sans-serif);
   background: var(--sfsures-bg, #ffffff);
 }
 

@@ -40,7 +40,7 @@ import { Sfsures_blackoutwindowsService } from '../generated/services/Sfsures_bl
 import { useTheme } from '../theme/ThemeContext'
 import { BookingModal } from '../booking/BookingModal'
 import { useFocusTrap } from '../a11y/useFocusTrap'
-import sfsuDefaultLogoUrl from '../assets/sfsu-logo.png'
+import sfsuDefaultLogoUrl from '../assets/sfsu-logo.png?inline'
 import styles from './CalendarScreen.module.css'
 
 // ---------------------------------------------------------------------------

@@ -13,7 +13,10 @@
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import { Sfsures_appsettingsesService } from '../generated/services/Sfsures_appsettingsesService'
-import sfsuDefaultLogoUrl from '../assets/sfsu-logo.png'
+import sfsuDefaultLogoUrl from '../assets/sfsu-logo.png?inline'
+
+export const SFSU_DEFAULT_FONT_FAMILY =
+  "'Source Sans 3', system-ui, -apple-system, 'Segoe UI', sans-serif"
 
 export interface AppTheme {
   primaryColor: string    // hex with #, e.g. #442C8B
@@ -30,7 +33,7 @@ const SFSU_DEFAULTS: AppTheme = {
   accentColor: '#DCAE27',
   backgroundColor: '#FFFFFF',
   logoUrl: sfsuDefaultLogoUrl,
-  fontFamily: 'Inter, system-ui, sans-serif',
+  fontFamily: SFSU_DEFAULT_FONT_FAMILY,
   borderRadius: 6,
   selectedThemeName: 'SFSU Default',
 }
