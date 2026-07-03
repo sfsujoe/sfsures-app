@@ -23,6 +23,8 @@ export interface Sfsures_appsettingsesBase {
   sfsures_fontfamily?: string;
   sfsures_isactive?: boolean;
   sfsures_logo?: string;
+  sfsures_maxreservationoccurrences?: number;
+  sfsures_maxreservationspanweeks?: number;
   sfsures_name: string;
   sfsures_primarycolor?: string;
   sfsures_selectedthemename?: string;

@@ -378,6 +378,7 @@ logic**, not schema.
 | Column | Type | Notes |
 |---|---|---|
 | Name | Text | primary (booking title / purpose) |
+| Comments | Memo | optional per-series comments; copy to generated occurrences for fast calendar/modal reads |
 | Resource | Lookup → Resource | |
 | **Booking Owner** | Lookup → App User | the booking owner (SF State ID record). **Renamed from "Owner"** to avoid clashing with the system Owner column. Business data — invisible to the security engine. |
 | Frequency | Choice | Daily / Weekly / Monthly |
@@ -398,6 +399,7 @@ delegates server-side.
 | Column | Type | Notes |
 |---|---|---|
 | Name | Autonumber | prefix `OCC-` |
+| Comments | Memo | optional user-entered reservation comments; denormalized from Series for recurring reservations |
 | Series | Lookup → Reservation Series | **optional** (not business-required) — null for single (non-recurring) bookings |
 | Resource | Lookup → Resource | denormalized for delegable conflict queries |
 | **Booking Owner** | Lookup → App User | denormalized. **Renamed from "Owner."** Business data, not the security owner. |
@@ -428,8 +430,9 @@ delegates server-side.
 ## Theming
  
 ### 13. `sfsures_appsettings` — App Settings / Theme  (Org-owned)
-The single, central home for the **resolved** theme values. App reads the active row once at startup;
-nothing is hardcoded on any screen.
+The single, central home for the **resolved** theme values and instance-level reservation limits.
+App reads the active row once at startup. Theme values are editable per instance; reservation limits
+are seeded at app hard maxima and may be made more restrictive by App Admins, never less restrictive.
  
 | Column | Type | Notes |
 |---|---|---|
@@ -442,6 +445,8 @@ nothing is hardcoded on any screen.
 | Border radius (px) | Whole# | |
 | Is Active | Y/N | exactly one active row |
 | Selected Theme Name | Text | which preset the admin picker has active (for re-highlighting) |
+| Max reservation occurrences | Whole# | default `50`; app hard maximum `50`; App Admins may lower this but the app clamps higher values back to `50` |
+| Max reservation span weeks | Whole# | default `18`; app hard maximum `18`; App Admins may lower this but the app clamps higher values back to `18` |
  
 > **Theme handling = admin Theme picker, Option A (presets hardcoded in the app).** The SFSU palettes
 > are a fixed, developer-known set identical across every instance, so they live in **code** (an
@@ -451,6 +456,14 @@ nothing is hardcoded on any screen.
 > lets admins enter custom hex (`#…`, validated) and a custom `https://` logo URL; a **Default** button
 > resets colors + logo to `SFSU_THEMES[0]`. Rebranding a department instance = edit this one row + swap
 > the logo. No screen edits.
+
+> **Reservation limit handling:** app hard caps live in code as
+> `HARD_MAX_RESERVATION_OCCURRENCES = 50` and `HARD_MAX_RESERVATION_SPAN_WEEKS = 18`. The active App
+> Settings row carries instance defaults using logical columns `sfsures_maxreservationoccurrences`
+> and `sfsures_maxreservationspanweeks`, both seeded to the hard caps in a new instance. The App
+> Settings screen must show each hard maximum beside the editable value and prevent or clamp looser
+> values. Recurrence generation must enforce both the resolved occurrence cap and resolved span cap
+> before creating any Series or Occurrence rows.
  
 ---
  

@@ -35,6 +35,7 @@ export interface Sfsures_reservationseriesesBase {
   ownerid: string;
   owneridtype: string;
   "sfsures_BookingOwner@odata.bind"?: string;
+  sfsures_comments?: string;
   sfsures_daysofweek?: string;
   sfsures_endmode?: Sfsures_reservationseriesessfsures_endmode;
   sfsures_frequency?: Sfsures_reservationseriesessfsures_frequency;

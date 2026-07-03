@@ -24,6 +24,7 @@ export interface Sfsures_reservationoccurrencesBase {
   ownerid: string;
   owneridtype: string;
   "sfsures_BookingOwner@odata.bind"?: string;
+  sfsures_comments?: string;
   sfsures_end?: string;
   sfsures_name: string;
   sfsures_recordstatus?: Sfsures_reservationoccurrencessfsures_recordstatus;

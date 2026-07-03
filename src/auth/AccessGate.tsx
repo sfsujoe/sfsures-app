@@ -89,6 +89,7 @@ export function AccessGate({ children }: AccessGateProps) {
 
         setCurrentUser({
           appUserId: row.sfsures_appuserid,
+          userPrincipalName: upn,
           sfStateId: row.sfsures_sfstateid,
           displayName: row.sfsures_displayname ?? '',
           email: row.sfsures_email ?? '',

@@ -15,6 +15,8 @@ import { createContext, useContext, type ReactNode } from 'react'
 export interface CurrentUser {
   /** Dataverse row GUID for sfsures_appuser */
   appUserId: string
+  /** Office365/Entra sign-in name used for tenant-backed profile lookups */
+  userPrincipalName?: string
   /** First 9 chars of UPN — the immutable key */
   sfStateId: string
   /** Display name snapshot from the App User row */

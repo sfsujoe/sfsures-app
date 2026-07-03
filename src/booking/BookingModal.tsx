@@ -7,14 +7,14 @@
  * Flow:
  *   1. User picks a resource from the dropdown (active resources loaded on mount)
  *   2. User adjusts start/end if needed
- *   3. On "Book": conflict detection runs first (delegable overlap query against
+ *   3. On "Reserve": conflict detection runs first (delegable overlap query against
  *      active occurrences + blackout windows for the selected resource)
  *   4. If clear -> create one sfsures_reservationoccurrence row
  *   5. Show an in-dialog confirmation with OK focused by default
  *   6. If conflicts -> show details, don't write
  *
- * The Booking Owner is set from UserContext (the authenticated user's App User
- * record, populated by AccessGate on startup). Series is null (single booking).
+ * The Booking Owner lookup is set from UserContext (the authenticated user's App User
+ * record, populated by AccessGate on startup). Series is null (single reservation).
  *
  * Resource-scope check (group membership) is TODO — for now the picker shows
  * all active resources. The Dataverse security role is still the real boundary;
@@ -38,6 +38,7 @@ import { Sfsures_blackoutwindowsService } from '../generated/services/Sfsures_bl
 import { useTheme } from '../theme/ThemeContext'
 import { useCurrentUser } from '../auth/UserContext'
 import { useFocusTrap } from '../a11y/useFocusTrap'
+import greenCheckUrl from '../assets/greencheck.png?inline'
 import styles from './BookingModal.module.css'
 
 // ---------------------------------------------------------------------------
@@ -49,7 +50,7 @@ interface BookingModalProps {
   start: Date
   /** Pre-filled from the calendar selection */
   end: Date
-  /** Close the modal without booking */
+  /** Close the modal without reserving */
   onClose: () => void
   /** Called after a successful create/update — CalendarScreen uses this to refresh */
   onBooked: () => void
@@ -61,7 +62,7 @@ interface ResourceOption {
 }
 
 interface ConflictInfo {
-  type: 'booking' | 'blackout'
+  type: 'reservation' | 'blackout'
   start: string
   end: string
   ownerName?: string
@@ -71,6 +72,9 @@ interface ConflictInfo {
 type ModalMode = 'form' | 'success'
 type SaveMode = 'create' | 'edit'
 type SuccessKind = 'created' | 'updated'
+
+const MS_PER_WEEK = 7 * 24 * 60 * 60 * 1000
+const RESERVATION_COMMENTS_FIELD = 'sfsures_comments'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -131,12 +135,16 @@ function formatInputRange(startValue: string, endValue: string): string {
   return `${date}, ${startTime} to ${endTime}`
 }
 
+function formatWeekLimit(weeks: number): string {
+  return weeks === 1 ? '1 week' : `${weeks} weeks`
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
 export function BookingModal({ start, end, onClose, onBooked }: BookingModalProps) {
-  const { theme } = useTheme()
+  const { theme, reservationLimits } = useTheme()
   const currentUser = useCurrentUser()
 
   // ---- Focus trap: contain Tab inside the dialog, restore focus on close ----
@@ -152,6 +160,7 @@ export function BookingModal({ start, end, onClose, onBooked }: BookingModalProp
   const [selectedResourceId, setSelectedResourceId] = useState('')
   const [startStr, setStartStr] = useState(toDatetimeLocal(start))
   const [endStr, setEndStr] = useState(toDatetimeLocal(end))
+  const [comments, setComments] = useState('')
 
   // ---- Modal flow state ----
   const [mode, setMode] = useState<ModalMode>('form')
@@ -166,11 +175,11 @@ export function BookingModal({ start, end, onClose, onBooked }: BookingModalProp
 
   const selectedResourceName =
     resources.find((resource) => resource.id === selectedResourceId)?.name ?? 'Selected resource'
-  const successTitle = successKind === 'updated' ? 'Booking Updated' : 'Booking Confirmed'
+  const successTitle = successKind === 'updated' ? 'Reservation Updated' : 'Reservation Confirmed'
   const successMessage =
     successKind === 'updated'
-      ? 'Your booking changes have been saved.'
-      : 'Your booking has been saved.'
+      ? 'Your reservation changes have been saved.'
+      : 'Your reservation has been saved.'
   const titleId = mode === 'success' ? 'booking-success-title' : 'booking-modal-title'
   const descriptionId = mode === 'success' ? 'booking-success-description' : undefined
 
@@ -247,6 +256,11 @@ export function BookingModal({ start, end, onClose, onBooked }: BookingModalProp
       return
     }
 
+    if (endDate.getTime() - startDate.getTime() > reservationLimits.maxSpanWeeks * MS_PER_WEEK) {
+      setError(`Reservations may span at most ${formatWeekLimit(reservationLimits.maxSpanWeeks)}.`)
+      return
+    }
+
     if (!currentUser) {
       setError('User identity not available. Try reloading the app.')
       return
@@ -257,7 +271,7 @@ export function BookingModal({ start, end, onClose, onBooked }: BookingModalProp
     try {
       const isEditing = saveMode === 'edit'
       if (isEditing && !bookingId) {
-        setError('Could not reopen this booking for editing. Close the dialog and try again.')
+        setError('Could not reopen this reservation for editing. Close the dialog and try again.')
         setSaving(false)
         return
       }
@@ -307,7 +321,7 @@ export function BookingModal({ start, end, onClose, onBooked }: BookingModalProp
 
       for (const occ of occResult.data ?? []) {
         found.push({
-          type: 'booking',
+          type: 'reservation',
           start: occ.sfsures_start ?? '',
           end: occ.sfsures_end ?? '',
           ownerName: undefined,
@@ -327,8 +341,8 @@ export function BookingModal({ start, end, onClose, onBooked }: BookingModalProp
         setConflicts(found)
         setError(
           found.length === 1
-            ? 'This time slot conflicts with an existing booking or blackout window.'
-            : `This time slot conflicts with ${found.length} existing bookings or blackout windows.`
+            ? 'This time slot conflicts with an existing reservation or blackout window.'
+            : `This time slot conflicts with ${found.length} existing reservations or blackout windows.`
         )
         setSaving(false)
         return
@@ -337,10 +351,12 @@ export function BookingModal({ start, end, onClose, onBooked }: BookingModalProp
       // --- No conflicts — create or update the occurrence ---
       // Lookup writes use @odata.bind navigation properties. The generated type is
       // over-strict for system-defaulted fields, so cast at the service boundary.
+      const trimmedComments = comments.trim()
       const occurrenceFields = {
         sfsures_start: startIso,
         sfsures_end: endIso,
         sfsures_recordstatus: 997330000,
+        [RESERVATION_COMMENTS_FIELD]: trimmedComments || null,
         'sfsures_Resource@odata.bind': `/sfsures_resources(${selectedResourceId})`,
         'sfsures_BookingOwner@odata.bind': `/sfsures_appusers(${currentUser.appUserId})`,
       }
@@ -363,16 +379,26 @@ export function BookingModal({ start, end, onClose, onBooked }: BookingModalProp
       setMode('success')
       onBooked()
     } catch (err) {
-      console.error('Booking failed:', err)
+      console.error('Reservation failed:', err)
       setError(
         err instanceof Error
-          ? `Booking failed: ${err.message}`
-          : 'An unexpected error occurred while creating the booking.'
+          ? `Reservation failed: ${err.message}`
+          : 'An unexpected error occurred while creating the reservation.'
       )
     } finally {
       setSaving(false)
     }
-  }, [selectedResourceId, startStr, endStr, currentUser, saveMode, bookingId, onBooked])
+  }, [
+    selectedResourceId,
+    startStr,
+    endStr,
+    comments,
+    reservationLimits.maxSpanWeeks,
+    currentUser,
+    saveMode,
+    bookingId,
+    onBooked,
+  ])
 
   // ---- Keyboard: Escape closes ----
   useEffect(() => {
@@ -385,7 +411,7 @@ export function BookingModal({ start, end, onClose, onBooked }: BookingModalProp
 
   // ---- Render ----
   const canSubmit = !!selectedResourceId && !!startStr && !!endStr && !saving
-  const submitLabel = saveMode === 'edit' ? 'Save Changes' : 'Book'
+  const submitLabel = saveMode === 'edit' ? 'Save Changes' : 'Reserve'
 
   return (
     <div className={styles.backdrop} onClick={onClose}>
@@ -413,11 +439,21 @@ export function BookingModal({ start, end, onClose, onBooked }: BookingModalProp
         {/* Header */}
         <div className={styles.header}>
           <h2 id={titleId} className={styles.title}>
-            {mode === 'success'
-              ? successTitle
-              : saveMode === 'edit'
-                ? 'Edit Booking'
-                : 'New Booking'}
+            <span>
+              {mode === 'success'
+                ? successTitle
+                : saveMode === 'edit'
+                  ? 'Edit Reservation'
+                  : 'New Reservation'}
+            </span>
+            {mode === 'success' && (
+              <img
+                src={greenCheckUrl}
+                alt=""
+                aria-hidden="true"
+                className={styles.confirmationIcon}
+              />
+            )}
           </h2>
           {mode === 'form' && (
             <button
@@ -443,6 +479,12 @@ export function BookingModal({ start, end, onClose, onBooked }: BookingModalProp
               <div className={styles.successSummary}>
                 <p className={styles.summaryResource}>{selectedResourceName}</p>
                 <p className={styles.summaryTime}>{formatInputRange(startStr, endStr)}</p>
+                {comments.trim() && (
+                  <div className={styles.summaryCommentsBlock}>
+                    <p className={styles.summaryLabel}>Comments</p>
+                    <p className={styles.summaryComments}>{comments.trim()}</p>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -518,6 +560,26 @@ export function BookingModal({ start, end, onClose, onBooked }: BookingModalProp
                 />
               </div>
             </div>
+            <p className={styles.limitHint}>
+              Reservations can span up to {formatWeekLimit(reservationLimits.maxSpanWeeks)}.
+            </p>
+
+            {/* Comments */}
+            <div className={styles.field}>
+              <label className={styles.label} htmlFor="booking-comments">
+                Comments
+              </label>
+              <textarea
+                id="booking-comments"
+                className={styles.textarea}
+                value={comments}
+                onChange={(e) => {
+                  setComments(e.target.value)
+                  setError('')
+                }}
+                rows={4}
+              />
+            </div>
 
             {/* Error / conflict banner (visual). aria-hidden is intentionally NOT set —
                 screen-reader users can navigate here for the full conflict list; the
@@ -531,7 +593,7 @@ export function BookingModal({ start, end, onClose, onBooked }: BookingModalProp
                       <li key={i}>
                         {c.type === 'blackout'
                           ? `Maintenance: ${formatRange(c.start, c.end)}${c.reason ? ` — ${c.reason}` : ''}`
-                          : `Booking: ${formatRange(c.start, c.end)}${c.ownerName ? ` (${c.ownerName})` : ''}`}
+                          : `Reservation: ${formatRange(c.start, c.end)}${c.ownerName ? ` (${c.ownerName})` : ''}`}
                       </li>
                     ))}
                     {conflicts.length > 3 && (
@@ -553,7 +615,7 @@ export function BookingModal({ start, end, onClose, onBooked }: BookingModalProp
                 onClick={handleEditBooking}
                 disabled={!bookingId}
               >
-                Edit Booking
+                Edit Reservation
               </button>
               <button
                 ref={okButtonRef}
@@ -575,7 +637,7 @@ export function BookingModal({ start, end, onClose, onBooked }: BookingModalProp
                 onClick={handleSubmit}
                 disabled={!canSubmit}
               >
-                {saving ? 'Booking…' : submitLabel}
+                {saving ? 'Reserving…' : submitLabel}
               </button>
             </>
           )}

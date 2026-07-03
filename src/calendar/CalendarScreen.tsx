@@ -16,8 +16,8 @@
  *     triggers a re-fetch when the user navigates outside that window.
  *
  * Accessibility:
- *   - "New booking" toolbar button gives a keyboard-operable path to create a
- *     booking, since FullCalendar's drag-to-select has no keyboard equivalent.
+ *   - "New reservation" toolbar button gives a keyboard-operable path to create a
+ *     reservation, since FullCalendar's drag-to-select has no keyboard equivalent.
  *     It opens BookingModal with a sensible default slot (no calendar selection
  *     needed), which is exactly the situation a keyboard/screen-reader user is in.
  *   - The event-detail popover is a dialog: focus is trapped while open and
@@ -37,7 +37,10 @@ import type { DateSelectArg, EventClickArg, DatesSetArg, EventInput } from '@ful
 
 import { Sfsures_reservationoccurrencesService } from '../generated/services/Sfsures_reservationoccurrencesService'
 import { Sfsures_blackoutwindowsService } from '../generated/services/Sfsures_blackoutwindowsService'
+import { Sfsures_appusersService } from '../generated/services/Sfsures_appusersService'
+import { Office365UsersService } from '../generated/services/Office365UsersService'
 import { useTheme } from '../theme/ThemeContext'
+import { useCurrentUser } from '../auth/UserContext'
 import { BookingModal } from '../booking/BookingModal'
 import { useFocusTrap } from '../a11y/useFocusTrap'
 import sfsuDefaultLogoUrl from '../assets/sfsu-logo.png?inline'
@@ -50,10 +53,11 @@ import styles from './CalendarScreen.module.css'
 interface OccurrenceRow {
   sfsures_reservationoccurrenceid?: string
   sfsures_name?: string
+  sfsures_comments?: string
   sfsures_start?: string
   sfsures_end?: string
+  _sfsures_bookingowner_value?: string
   '_sfsures_resource_value@OData.Community.Display.V1.FormattedValue'?: string
-  '_sfsures_bookingowner_value@OData.Community.Display.V1.FormattedValue'?: string
   sfsures_recordstatus?: number
 }
 
@@ -66,6 +70,15 @@ interface BlackoutRow {
   'sfsures_Resource@OData.Community.Display.V1.FormattedValue'?: string
 }
 
+interface ReservationOwnerDetails {
+  appUserId: string
+  displayName: string
+  email: string
+  photoUrl: string | null
+}
+
+type OwnerLoadStatus = 'idle' | 'loading' | 'ready' | 'unavailable'
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -76,7 +89,7 @@ function toIso(val: string | undefined | null): string {
 }
 
 /**
- * Default slot for the keyboard "New booking" path: next top of the hour,
+ * Default slot for the keyboard "New reservation" path: next top of the hour,
  * one hour long. The user adjusts start/end/resource in the modal.
  */
 function nextHourSlot(): { start: Date; end: Date } {
@@ -91,8 +104,6 @@ function nextHourSlot(): { start: Date; end: Date } {
 function occurrenceToEvent(row: OccurrenceRow, primaryColor: string): EventInput {
   const resourceName =
     row['_sfsures_resource_value@OData.Community.Display.V1.FormattedValue'] ?? 'Resource'
-  const ownerName =
-    row['_sfsures_bookingowner_value@OData.Community.Display.V1.FormattedValue'] ?? ''
 
   return {
     id: row.sfsures_reservationoccurrenceid ?? '',
@@ -103,7 +114,8 @@ function occurrenceToEvent(row: OccurrenceRow, primaryColor: string): EventInput
     borderColor: primaryColor,
     textColor: '#ffffff',
     extendedProps: {
-      owner: ownerName,
+      ownerId: row._sfsures_bookingowner_value ?? '',
+      comments: row.sfsures_comments?.trim() ?? '',
       type: 'occurrence' as const,
       reason: null,
     },
@@ -129,12 +141,56 @@ function blackoutToEvent(row: BlackoutRow, accentColor: string): EventInput {
   }
 }
 
+function initialsFor(displayName: string | undefined, email: string | undefined): string {
+  const source = (displayName || email?.split('@')[0] || '').trim()
+  if (!source) return 'SF'
+
+  const parts = source.split(/[\s._-]+/).filter(Boolean)
+  const first = parts[0]?.[0] ?? ''
+  const second = parts.length > 1 ? parts[parts.length - 1]?.[0] ?? '' : parts[0]?.[1] ?? ''
+
+  return `${first}${second}`.toUpperCase() || 'SF'
+}
+
+function normalizeProfilePhotoSrc(photo: string | undefined | null, contentType?: string): string | null {
+  const trimmed = photo?.trim()
+  if (!trimmed) return null
+
+  if (/^(data:|blob:|https?:)/i.test(trimmed)) {
+    return trimmed
+  }
+
+  return `data:${contentType || 'image/jpeg'};base64,${trimmed}`
+}
+
+async function loadTenantProfilePhotoSrc(userId: string): Promise<string | null> {
+  const metadata = await Office365UsersService.UserPhotoMetadata(userId)
+
+  if (metadata.data?.HasPhoto === false) {
+    return null
+  }
+
+  const photo = await Office365UsersService.UserPhoto_V2(userId)
+  return normalizeProfilePhotoSrc(photo.data, metadata.data?.ContentType)
+}
+
+function reservationOwnerIdFor(event: EventInput | null): string {
+  const ownerId = event?.extendedProps?.ownerId
+  return typeof ownerId === 'string' ? ownerId : ''
+}
+
+function reservationCommentsFor(event: EventInput | null): string {
+  const comments = event?.extendedProps?.comments
+  return typeof comments === 'string' ? comments.trim() : ''
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
 export function CalendarScreen() {
   const { theme } = useTheme()
+  const currentUser = useCurrentUser()
   const calendarRef = useRef<FullCalendar>(null)
 
   const [events, setEvents] = useState<EventInput[]>([])
@@ -143,8 +199,12 @@ export function CalendarScreen() {
   const [selectedEvent, setSelectedEvent] = useState<EventInput | null>(null)
   const [activeLogoUrl, setActiveLogoUrl] = useState(theme.logoUrl || sfsuDefaultLogoUrl)
   const [logoLoadFailed, setLogoLoadFailed] = useState(false)
+  const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null)
+  const [profilePhotoUnavailable, setProfilePhotoUnavailable] = useState(false)
+  const [selectedOwnerDetails, setSelectedOwnerDetails] = useState<ReservationOwnerDetails | null>(null)
+  const [selectedOwnerStatus, setSelectedOwnerStatus] = useState<OwnerLoadStatus>('idle')
 
-  // Booking modal state — non-null when the modal is open.
+  // Reservation modal state — non-null when the modal is open.
   const [bookingSlot, setBookingSlot] = useState<{ start: Date; end: Date } | null>(null)
 
   // Focus trap for the event-detail popover (active only while it is open).
@@ -153,6 +213,7 @@ export function CalendarScreen() {
 
   // Track the loaded date range so we don't re-fetch unnecessarily.
   const loadedRangeRef = useRef<{ start: Date; end: Date } | null>(null)
+  const ownerDetailsCacheRef = useRef<Map<string, ReservationOwnerDetails>>(new Map())
 
   // ---------------------------------------------------------------------------
   // Data loading
@@ -174,6 +235,146 @@ export function CalendarScreen() {
     setLogoLoadFailed(true)
   }, [activeLogoUrl])
 
+  useEffect(() => {
+    const photoLookupId = currentUser?.userPrincipalName || currentUser?.email
+
+    if (!photoLookupId) {
+      return
+    }
+
+    const userPhotoId = photoLookupId
+    let cancelled = false
+
+    async function loadProfilePhoto() {
+      setProfilePhotoUrl(null)
+      setProfilePhotoUnavailable(false)
+
+      try {
+        const src = await loadTenantProfilePhotoSrc(userPhotoId)
+
+        if (!cancelled) {
+          setProfilePhotoUrl(src)
+          setProfilePhotoUnavailable(!src)
+        }
+      } catch (err) {
+        console.warn('Tenant profile photo could not be loaded:', err)
+        if (!cancelled) {
+          setProfilePhotoUrl(null)
+          setProfilePhotoUnavailable(true)
+        }
+      }
+    }
+
+    loadProfilePhoto()
+
+    return () => {
+      cancelled = true
+    }
+  }, [currentUser?.email, currentUser?.userPrincipalName])
+
+  useEffect(() => {
+    if (selectedEvent?.extendedProps?.type !== 'occurrence') {
+      setSelectedOwnerDetails(null)
+      setSelectedOwnerStatus('idle')
+      return
+    }
+
+    const appUserId = reservationOwnerIdFor(selectedEvent)
+
+    if (!appUserId) {
+      setSelectedOwnerDetails(null)
+      setSelectedOwnerStatus('unavailable')
+      return
+    }
+
+    const cachedOwner = ownerDetailsCacheRef.current.get(appUserId)
+
+    if (cachedOwner) {
+      setSelectedOwnerDetails(cachedOwner)
+      setSelectedOwnerStatus('ready')
+      return
+    }
+
+    let cancelled = false
+
+    async function loadSelectedOwnerDetails() {
+      setSelectedOwnerDetails(null)
+      setSelectedOwnerStatus('loading')
+
+      try {
+        const appUserResult = await Sfsures_appusersService.get(appUserId, {
+          select: ['sfsures_appuserid', 'sfsures_displayname', 'sfsures_email'],
+        })
+        const appUser = appUserResult.data
+
+        if (!appUser) {
+          if (!cancelled) {
+            setSelectedOwnerStatus('unavailable')
+          }
+          return
+        }
+
+        let displayName = appUser.sfsures_displayname?.trim() ?? ''
+        let email = appUser.sfsures_email?.trim() ?? ''
+        let tenantLookupId = email
+
+        if (tenantLookupId) {
+          try {
+            const tenantProfile = await Office365UsersService.UserProfile_V2(
+              tenantLookupId,
+              'displayName,mail,userPrincipalName'
+            )
+
+            displayName = tenantProfile.data?.displayName?.trim() || displayName
+            email =
+              tenantProfile.data?.mail?.trim() ||
+              tenantProfile.data?.userPrincipalName?.trim() ||
+              email
+            tenantLookupId = tenantProfile.data?.userPrincipalName?.trim() || email || tenantLookupId
+          } catch (err) {
+            console.warn('Reservation owner tenant profile could not be loaded:', err)
+          }
+        }
+
+        let photoUrl: string | null = null
+
+        if (tenantLookupId) {
+          try {
+            photoUrl = await loadTenantProfilePhotoSrc(tenantLookupId)
+          } catch (err) {
+            console.warn('Reservation owner tenant profile photo could not be loaded:', err)
+          }
+        }
+
+        const ownerDetails: ReservationOwnerDetails = {
+          appUserId,
+          displayName: displayName || 'Reservation owner',
+          email,
+          photoUrl,
+        }
+
+        ownerDetailsCacheRef.current.set(appUserId, ownerDetails)
+
+        if (!cancelled) {
+          setSelectedOwnerDetails(ownerDetails)
+          setSelectedOwnerStatus('ready')
+        }
+      } catch (err) {
+        console.warn('Reservation owner App User row could not be loaded:', err)
+        if (!cancelled) {
+          setSelectedOwnerDetails(null)
+          setSelectedOwnerStatus('unavailable')
+        }
+      }
+    }
+
+    loadSelectedOwnerDetails()
+
+    return () => {
+      cancelled = true
+    }
+  }, [selectedEvent])
+
   const loadRange = useCallback(
     async (rangeStart: Date, rangeEnd: Date) => {
       setLoadStatus('loading')
@@ -188,6 +389,7 @@ export function CalendarScreen() {
             select: [
               'sfsures_reservationoccurrenceid',
               'sfsures_name',
+              'sfsures_comments',
               'sfsures_start',
               'sfsures_end',
               'sfsures_recordstatus',
@@ -264,7 +466,7 @@ export function CalendarScreen() {
   )
 
   // ---------------------------------------------------------------------------
-  // Refresh helper (called after a successful booking)
+  // Refresh helper (called after a successful reservation)
   // ---------------------------------------------------------------------------
 
   const refreshCalendar = useCallback(() => {
@@ -299,7 +501,7 @@ export function CalendarScreen() {
   }, [])
 
   const handleDateSelect = useCallback((arg: DateSelectArg) => {
-    // Open the booking modal with the selected time range.
+    // Open the reservation modal with the selected time range.
     setBookingSlot({ start: arg.start, end: arg.end })
     // Clear the FullCalendar highlight.
     calendarRef.current?.getApi().unselect()
@@ -309,28 +511,61 @@ export function CalendarScreen() {
   // Render
   // ---------------------------------------------------------------------------
 
+  const selectedEventComments = reservationCommentsFor(selectedEvent)
+
   return (
     <div className={styles.shell}>
       {/* Header */}
       <header className={styles.header} style={{ backgroundColor: theme.primaryColor }}>
         <div className={styles.headerInner}>
-          {activeLogoUrl && !logoLoadFailed ? (
-            <img
-              src={activeLogoUrl}
-              alt=""
-              aria-hidden="true"
-              className={styles.logo}
-              title={
-                activeLogoUrl === sfsuDefaultLogoUrl && theme.logoUrl !== sfsuDefaultLogoUrl
-                  ? 'Using default logo because the configured logo did not load.'
-                  : undefined
-              }
-              onError={handleLogoError}
-            />
-          ) : (
-            <span className={styles.logoFallback}>Logo unavailable</span>
-          )}
+          <a
+            href="https://www.sfsu.edu/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className={styles.logoLink}
+            aria-label="Open SFSU home page in a new tab"
+          >
+            {activeLogoUrl && !logoLoadFailed ? (
+              <img
+                src={activeLogoUrl}
+                alt=""
+                aria-hidden="true"
+                className={styles.logo}
+                title={
+                  activeLogoUrl === sfsuDefaultLogoUrl && theme.logoUrl !== sfsuDefaultLogoUrl
+                    ? 'Using default logo because the configured logo did not load.'
+                    : undefined
+                }
+                onError={handleLogoError}
+              />
+            ) : (
+              <span className={styles.logoFallback}>Logo unavailable</span>
+            )}
+          </a>
           <h1 className={styles.headerTitle}>SFSU Resource Reservations</h1>
+          <div className={styles.profileSlot}>
+            {profilePhotoUrl && !profilePhotoUnavailable ? (
+              <img
+                src={profilePhotoUrl}
+                alt={`${currentUser?.displayName || 'Signed-in user'} profile photo`}
+                className={styles.profilePhoto}
+                onError={() => {
+                  console.warn('Tenant profile photo response could not be rendered.')
+                  setProfilePhotoUrl(null)
+                  setProfilePhotoUnavailable(true)
+                }}
+              />
+            ) : (
+              <div
+                className={styles.profileFallback}
+                role="img"
+                aria-label={`${currentUser?.displayName || 'Signed-in user'} profile photo unavailable`}
+                title={currentUser?.displayName || currentUser?.email || 'Signed-in user'}
+              >
+                {initialsFor(currentUser?.displayName, currentUser?.email)}
+              </div>
+            )}
+          </div>
         </div>
       </header>
 
@@ -359,7 +594,7 @@ export function CalendarScreen() {
             initialView="timeGridWeek"
             customButtons={{
               newBooking: {
-                text: 'New booking',
+                text: 'New reservation',
                 // Keyboard-operable path: opens the modal with a default slot,
                 // no calendar selection required.
                 click: () => setBookingSlot(nextHourSlot()),
@@ -446,24 +681,78 @@ export function CalendarScreen() {
                 <h2 id="event-popover-title" className={styles.popoverTitle}>
                   {selectedEvent.title as string}
                 </h2>
-                {selectedEvent.extendedProps?.owner && (
-                  <p className={styles.popoverDetail}>
-                    <strong>Booked by:</strong> {selectedEvent.extendedProps.owner}
-                  </p>
-                )}
                 <p className={styles.popoverDetail}>
                   {formatEventRange(
                     selectedEvent.start as string,
                     selectedEvent.end as string
                   )}
                 </p>
+                {selectedEventComments && (
+                  <section className={styles.commentsSection} aria-label="Reservation comments">
+                    <p className={styles.commentsLabel}>Comments</p>
+                    <p className={styles.commentsText}>{selectedEventComments}</p>
+                  </section>
+                )}
+                <section className={styles.ownerSection} aria-label="Reservation owner">
+                  <div className={styles.ownerAvatarWrap} aria-hidden="true">
+                    {selectedOwnerStatus === 'ready' && selectedOwnerDetails?.photoUrl ? (
+                      <img
+                        src={selectedOwnerDetails.photoUrl}
+                        alt=""
+                        className={styles.ownerPhoto}
+                        onError={() => {
+                          setSelectedOwnerDetails((current) => {
+                            if (!current) return current
+                            const next = { ...current, photoUrl: null }
+                            ownerDetailsCacheRef.current.set(current.appUserId, next)
+                            return next
+                          })
+                        }}
+                      />
+                    ) : (
+                      <div
+                        className={
+                          selectedOwnerStatus === 'loading'
+                            ? `${styles.ownerAvatarFallback} ${styles.ownerAvatarLoading}`
+                            : styles.ownerAvatarFallback
+                        }
+                      >
+                        {selectedOwnerStatus === 'ready' && selectedOwnerDetails
+                          ? initialsFor(selectedOwnerDetails.displayName, selectedOwnerDetails.email)
+                          : ''}
+                      </div>
+                    )}
+                  </div>
+                  <div className={styles.ownerText}>
+                    <p className={styles.ownerLabel}>Reserved by</p>
+                    {selectedOwnerStatus === 'loading' ? (
+                      <p className={styles.ownerMuted}>Loading owner details</p>
+                    ) : selectedOwnerStatus === 'ready' && selectedOwnerDetails ? (
+                      <>
+                        <p className={styles.ownerName}>{selectedOwnerDetails.displayName}</p>
+                        {selectedOwnerDetails.email ? (
+                          <a
+                            className={styles.ownerEmail}
+                            href={`mailto:${selectedOwnerDetails.email}`}
+                          >
+                            {selectedOwnerDetails.email}
+                          </a>
+                        ) : (
+                          <p className={styles.ownerMuted}>Email unavailable</p>
+                        )}
+                      </>
+                    ) : (
+                      <p className={styles.ownerMuted}>Owner details unavailable</p>
+                    )}
+                  </div>
+                </section>
               </>
             )}
           </div>
         </div>
       )}
 
-      {/* Booking modal */}
+      {/* Reservation modal */}
       {bookingSlot && (
         <BookingModal
           start={bookingSlot.start}

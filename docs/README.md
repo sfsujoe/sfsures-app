@@ -2,7 +2,7 @@
 
 This folder is the local reference library for the SFSU Resource Reservation System, a Power Apps Code App built with React, TypeScript, Vite, FullCalendar, Office365Users, and Microsoft Dataverse. The app is intended to replace LabArchives Scheduler for SFSU resource booking, with a Dataverse-backed model for resources, reservations, blackout windows, group-scoped access, theming, audit logging, and per-department managed-solution replication.
 
-Last indexed: 2026-07-01.
+Last indexed: 2026-07-02.
 
 ## Quick Project Shape
 
@@ -19,9 +19,10 @@ Last indexed: 2026-07-01.
 3. [Threat Model Addendum](sfsu_threat_model_addendum.md) for platform-enforced vs app-enforced rules and accepted residual risks.
 4. [UI Build Kickoff Addendum](sfsu_ui_build_kickoff_addendum.md) for the published schema, generated service names, and Code App scaffold facts.
 5. [Booking Modal and Layout Fix Addendum](sfsu_booking_modal_and_layout_fix_addendum.md) for the current end-to-end booking MVP and Dataverse lookup conventions.
-6. [Accessibility Tier 1 Addendum](sfsu_accessibility_tier1_addendum.md) for completed accessibility fixes and queued DPRC/WCAG work.
-7. [Environment and Demo Planning Addendum](sfsu_environment_and_demo_planning_addendum.md) for sandbox/production environment strategy and demo plan.
-8. Older planning and exploration docs are useful for rationale, but treat newer addenda above as current when they conflict.
+6. [UI Branding and Booking Confirmation Polish Addendum](sfsu_ui_branding_and_booking_confirmation_addendum.md) for the current modal confirmation behavior, bundled SFSU logo/font defaults, and calendar visual polish.
+7. [Accessibility Tier 1 Addendum](sfsu_accessibility_tier1_addendum.md) for completed accessibility fixes and queued DPRC/WCAG work.
+8. [Environment and Demo Planning Addendum](sfsu_environment_and_demo_planning_addendum.md) for sandbox/production environment strategy and demo plan.
+9. Older planning and exploration docs are useful for rationale, but treat newer addenda above as current when they conflict.
 
 ## Session Workflow
 
@@ -50,6 +51,7 @@ Last indexed: 2026-07-01.
 | [sfsu_schema_build_complete_addendum.md](sfsu_schema_build_complete_addendum.md) | Historical schema-build completion note; still useful for rationale, but some ownership/naming facts were superseded by the security roles/teams addendum. |
 | [sfsu_security_roles_and_teams_addendum.md](sfsu_security_roles_and_teams_addendum.md) | Current source for security roles, Owner teams, reservation-table ownership, privilege inheritance, and enforcement-layer open tests. |
 | [sfsu_threat_model_addendum.md](sfsu_threat_model_addendum.md) | Current source for known vulnerabilities, API-bypass risks, metadata discoverability, audit-log limitations, and detective controls. |
+| [sfsu_ui_branding_and_booking_confirmation_addendum.md](sfsu_ui_branding_and_booking_confirmation_addendum.md) | Documents the centered booking confirmation modal, bundled SFSU logo and Source Sans 3 defaults, header/date-header polish, and deferred scrollbar-arrow issue. |
 | [sfsu_ui_build_kickoff_addendum.md](sfsu_ui_build_kickoff_addendum.md) | Records schema publication, all generated service/model filenames, build status, and first UI-build instructions. |
 | [sfsu_vibe_coding_session_notes.md](sfsu_vibe_coding_session_notes.md) | Earliest vibe-coding preparation notes; useful mostly as historical context for why Vibe was later retired. |
 
@@ -130,19 +132,21 @@ Current MVP, based on the docs and source tree:
 - React/Vite Code App scaffold exists and is bound to the Power Apps environment in `power.config.json`.
 - All 14 Dataverse service/model files are generated.
 - `AccessGate` validates the signed-in user through Office365Users and App User rows before rendering content.
-- `CalendarScreen` loads occurrences and blackout windows with delegation-safe query shapes and renders them with FullCalendar.
-- `BookingModal` creates single, non-recurring reservation occurrences against real Dataverse data.
+- `CalendarScreen` loads occurrences and blackout windows with delegation-safe query shapes and renders them with FullCalendar, including centered header branding and yellow date headers.
+- `BookingModal` creates and updates single, non-recurring reservation occurrences against real Dataverse data, including optional Comments, then shows a centered confirmation state with `Edit Reservation` and focused `OK`.
 - Conflict detection against active occurrences and blackout windows is implemented for single bookings.
-- Theme values load through `ThemeContext` from `sfsures_appsettings`, with SFSU defaults as fallback.
+- Theme values load through `ThemeContext` from `sfsures_appsettings`, with portable bundled SFSU logo and Source Sans 3 defaults as fallback.
+- Reservation limits are loaded from `sfsures_appsettings` with code hard caps: max 50 generated occurrences and max 18 weeks per reservation/series span. App Admins may configure more restrictive values only.
 - Tier 1 accessibility work is partly implemented: focus trap helper, dialog semantics, visible focus ring, keyboard booking path, and live regions.
 
 Future production work:
 
 - Recurring reservation UI and atomic all-or-nothing occurrence creation.
 - Resource group-scoping in the booking picker and related UI.
-- Admin screens for resource catalog, users, groups, blackout windows, and theme picker.
+- Admin screens for resource catalog, users, groups, blackout windows, and app settings/theme picker. The App Settings screen must show the hard maximum beside each configurable reservation limit.
 - Reports/export screens and Excel/SharePoint outputs.
 - Full DPRC/WCAG verification, including screen-reader testing and Tier 2/Tier 3 accessibility work.
+- Optional calendar layout follow-up if native scrollbar arrow buttons remain distracting in the Power Apps/browser host.
 - Production and sandbox environment provisioning, managed-solution import/export, and production role creation confirmation.
 - Booker inheritance test with a non-admin identity, mid-session revocation test, and broader pen-testing roadmap.
 - Nightly export flow, anomaly-alert flow, audit-log purge role, co-owner/ITS reassignment backstop, Application Insights, and possible Dataverse plugin hardening.
@@ -153,6 +157,7 @@ Future production work:
 - `sfsu_schema_build_complete_addendum.md` contains superseded ownership/naming facts; add a superseded notice or revise it later.
 - Several older docs mention Vibe or Claude browser-extension workflows that have since been retired; keep them historical unless explicitly reviving that path.
 - Decide later whether a repo-local `AGENTS.md` or `CLAUDE.md` is still needed; for now, personal skills plus this README cover startup and closeout.
+- Native scrollbar arrow buttons can still appear inside the calendar host; earlier CSS attempts were ineffective and should stay deferred unless layout changes make them easier to remove.
 - Verify `cose-res-demo-sandbox` code-app support and Joe's System Administrator rights there.
 - Confirm production environment custom role creation and System Administrator grant.
 - Run the non-admin Booker test: own reservation write/delete succeeds, peer reservation write/delete returns 403.

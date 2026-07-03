@@ -234,6 +234,14 @@
           "x-ms-read-only": true,
           "maxLength": 9
         },
+        "sfsures_comments": {
+          "type": "string",
+          "title": "Comments",
+          "x-ms-dataverse-attribute": "sfsures_comments",
+          "x-ms-dataverse-type": "MemoType",
+          "x-ms-schema-name": "sfsures_Comments",
+          "maxLength": 2000
+        },
         "sfsures_end": {
           "type": "string",
           "title": "End",
