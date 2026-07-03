@@ -2,7 +2,7 @@
 
 This folder is the local reference library for the SFSU Resource Reservation System, a Power Apps Code App built with React, TypeScript, Vite, FullCalendar, Office365Users, and Microsoft Dataverse. The app is intended to replace LabArchives Scheduler for SFSU resource booking, with a Dataverse-backed model for resources, reservations, blackout windows, group-scoped access, theming, audit logging, and per-department managed-solution replication.
 
-Last indexed: 2026-07-02.
+Last indexed: 2026-07-03.
 
 ## Quick Project Shape
 
@@ -20,9 +20,10 @@ Last indexed: 2026-07-02.
 4. [UI Build Kickoff Addendum](sfsu_ui_build_kickoff_addendum.md) for the published schema, generated service names, and Code App scaffold facts.
 5. [Booking Modal and Layout Fix Addendum](sfsu_booking_modal_and_layout_fix_addendum.md) for the current end-to-end booking MVP and Dataverse lookup conventions.
 6. [UI Branding and Booking Confirmation Polish Addendum](sfsu_ui_branding_and_booking_confirmation_addendum.md) for the current modal confirmation behavior, bundled SFSU logo/font defaults, and calendar visual polish.
-7. [Accessibility Tier 1 Addendum](sfsu_accessibility_tier1_addendum.md) for completed accessibility fixes and queued DPRC/WCAG work.
-8. [Environment and Demo Planning Addendum](sfsu_environment_and_demo_planning_addendum.md) for sandbox/production environment strategy and demo plan.
-9. Older planning and exploration docs are useful for rationale, but treat newer addenda above as current when they conflict.
+7. [Reservation Details, Comments, and Limits Addendum](sfsu_ui_reservation_details_comments_and_limits_addendum.md) for the current header/profile polish, reservation detail modal, comments, and App Settings-backed reservation limits.
+8. [Accessibility Tier 1 Addendum](sfsu_accessibility_tier1_addendum.md) for completed accessibility fixes and queued DPRC/WCAG work.
+9. [Environment and Demo Planning Addendum](sfsu_environment_and_demo_planning_addendum.md) for sandbox/production environment strategy and demo plan.
+10. Older planning and exploration docs are useful for rationale, but treat newer addenda above as current when they conflict.
 
 ## Session Workflow
 
@@ -53,6 +54,7 @@ Last indexed: 2026-07-02.
 | [sfsu_threat_model_addendum.md](sfsu_threat_model_addendum.md) | Current source for known vulnerabilities, API-bypass risks, metadata discoverability, audit-log limitations, and detective controls. |
 | [sfsu_ui_branding_and_booking_confirmation_addendum.md](sfsu_ui_branding_and_booking_confirmation_addendum.md) | Documents the centered booking confirmation modal, bundled SFSU logo and Source Sans 3 defaults, header/date-header polish, and deferred scrollbar-arrow issue. |
 | [sfsu_ui_build_kickoff_addendum.md](sfsu_ui_build_kickoff_addendum.md) | Records schema publication, all generated service/model filenames, build status, and first UI-build instructions. |
+| [sfsu_ui_reservation_details_comments_and_limits_addendum.md](sfsu_ui_reservation_details_comments_and_limits_addendum.md) | Documents clickable/header profile polish, reservation owner details, plain-text comments, App Settings-backed limits, and chunk-size carry-forward guidance. |
 | [sfsu_vibe_coding_session_notes.md](sfsu_vibe_coding_session_notes.md) | Earliest vibe-coding preparation notes; useful mostly as historical context for why Vibe was later retired. |
 
 ## Dataverse Schema Documentation
@@ -79,6 +81,7 @@ Schema rules to preserve:
 - Publisher prefix is `sfsures` and must remain stable across department instances.
 - Reservation Series and Reservation Occurrence are User/team-owned; the other 12 tables are Organization-owned.
 - `sfsures_BookingOwner` is business data and is distinct from Dataverse system `OwnerId`.
+- Reservation Series and Reservation Occurrence both include optional plain-text `sfsures_comments`; generated occurrence rows should carry comments for fast calendar/detail reads.
 - Resource attributes use five typed value columns, not JSON.
 - Group resource-type access and group resource access are two separate explicit junction tables.
 - App User is keyed by write-once SF State ID.
@@ -132,7 +135,7 @@ Current MVP, based on the docs and source tree:
 - React/Vite Code App scaffold exists and is bound to the Power Apps environment in `power.config.json`.
 - All 14 Dataverse service/model files are generated.
 - `AccessGate` validates the signed-in user through Office365Users and App User rows before rendering content.
-- `CalendarScreen` loads occurrences and blackout windows with delegation-safe query shapes and renders them with FullCalendar, including centered header branding and yellow date headers.
+- `CalendarScreen` loads occurrences and blackout windows with delegation-safe query shapes and renders them with FullCalendar, including centered header branding, signed-in user profile photo, yellow date headers, and a reservation detail dialog with owner profile and comments.
 - `BookingModal` creates and updates single, non-recurring reservation occurrences against real Dataverse data, including optional Comments, then shows a centered confirmation state with `Edit Reservation` and focused `OK`.
 - Conflict detection against active occurrences and blackout windows is implemented for single bookings.
 - Theme values load through `ThemeContext` from `sfsures_appsettings`, with portable bundled SFSU logo and Source Sans 3 defaults as fallback.
@@ -144,6 +147,7 @@ Future production work:
 - Recurring reservation UI and atomic all-or-nothing occurrence creation.
 - Resource group-scoping in the booking picker and related UI.
 - Admin screens for resource catalog, users, groups, blackout windows, and app settings/theme picker. The App Settings screen must show the hard maximum beside each configurable reservation limit.
+- Lazy-load future admin/settings/report screens once navigation arrives so the calendar bundle stays lean; the current Vite large chunk warning is a baseline metric, not a blocker.
 - Reports/export screens and Excel/SharePoint outputs.
 - Full DPRC/WCAG verification, including screen-reader testing and Tier 2/Tier 3 accessibility work.
 - Optional calendar layout follow-up if native scrollbar arrow buttons remain distracting in the Power Apps/browser host.
