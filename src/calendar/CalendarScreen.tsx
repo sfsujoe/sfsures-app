@@ -36,12 +36,13 @@ import interactionPlugin from '@fullcalendar/interaction'
 import type { DateSelectArg, EventClickArg, DatesSetArg, EventInput } from '@fullcalendar/core'
 
 import { Sfsures_reservationoccurrencesService } from '../generated/services/Sfsures_reservationoccurrencesService'
+import { Sfsures_reservationseriesesService } from '../generated/services/Sfsures_reservationseriesesService'
 import { Sfsures_blackoutwindowsService } from '../generated/services/Sfsures_blackoutwindowsService'
 import { Sfsures_appusersService } from '../generated/services/Sfsures_appusersService'
 import { Office365UsersService } from '../generated/services/Office365UsersService'
 import { useTheme } from '../theme/ThemeContext'
 import { useCurrentUser } from '../auth/UserContext'
-import { BookingModal } from '../booking/BookingModal'
+import { BookingModal, type EditableReservation } from '../booking/BookingModal'
 import { useFocusTrap } from '../a11y/useFocusTrap'
 import sfsuDefaultLogoUrl from '../assets/sfsu-logo.png?inline'
 import styles from './CalendarScreen.module.css'
@@ -56,7 +57,9 @@ interface OccurrenceRow {
   sfsures_comments?: string
   sfsures_start?: string
   sfsures_end?: string
+  _sfsures_resource_value?: string
   _sfsures_bookingowner_value?: string
+  _sfsures_series_value?: string
   '_sfsures_resource_value@OData.Community.Display.V1.FormattedValue'?: string
   sfsures_recordstatus?: number
 }
@@ -78,6 +81,10 @@ interface ReservationOwnerDetails {
 }
 
 type OwnerLoadStatus = 'idle' | 'loading' | 'ready' | 'unavailable'
+type DeleteConfirmMode = 'occurrence' | 'series'
+
+const RECORD_STATUS_ACTIVE = 997330000
+const RECORD_STATUS_CANCELLED = 997330001
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -115,6 +122,8 @@ function occurrenceToEvent(row: OccurrenceRow, primaryColor: string): EventInput
     textColor: '#ffffff',
     extendedProps: {
       ownerId: row._sfsures_bookingowner_value ?? '',
+      resourceId: row._sfsures_resource_value ?? '',
+      seriesId: row._sfsures_series_value ?? '',
       comments: row.sfsures_comments?.trim() ?? '',
       type: 'occurrence' as const,
       reason: null,
@@ -179,9 +188,19 @@ function reservationOwnerIdFor(event: EventInput | null): string {
   return typeof ownerId === 'string' ? ownerId : ''
 }
 
+function reservationResourceIdFor(event: EventInput | null): string {
+  const resourceId = event?.extendedProps?.resourceId
+  return typeof resourceId === 'string' ? resourceId : ''
+}
+
 function reservationCommentsFor(event: EventInput | null): string {
   const comments = event?.extendedProps?.comments
   return typeof comments === 'string' ? comments.trim() : ''
+}
+
+function reservationSeriesIdFor(event: EventInput | null): string {
+  const seriesId = event?.extendedProps?.seriesId
+  return typeof seriesId === 'string' ? seriesId : ''
 }
 
 // ---------------------------------------------------------------------------
@@ -197,6 +216,12 @@ export function CalendarScreen() {
   const [loadStatus, setLoadStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [errorMessage, setErrorMessage] = useState('')
   const [selectedEvent, setSelectedEvent] = useState<EventInput | null>(null)
+  const [editingReservation, setEditingReservation] = useState<
+    { start: Date; end: Date; reservation: EditableReservation } | null
+  >(null)
+  const [deleteConfirmMode, setDeleteConfirmMode] = useState<DeleteConfirmMode | null>(null)
+  const [deletingReservation, setDeletingReservation] = useState(false)
+  const [reservationActionError, setReservationActionError] = useState('')
   const [activeLogoUrl, setActiveLogoUrl] = useState(theme.logoUrl || sfsuDefaultLogoUrl)
   const [logoLoadFailed, setLogoLoadFailed] = useState(false)
   const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null)
@@ -395,6 +420,7 @@ export function CalendarScreen() {
               'sfsures_recordstatus',
               '_sfsures_resource_value',
               '_sfsures_bookingowner_value',
+              '_sfsures_series_value',
             ],
             filter:
               `sfsures_recordstatus eq 997330000` +
@@ -476,11 +502,22 @@ export function CalendarScreen() {
     }
   }, [loadRange])
 
+  const closeReservationInfo = useCallback(() => {
+    setSelectedEvent(null)
+    setDeleteConfirmMode(null)
+    setDeletingReservation(false)
+    setReservationActionError('')
+  }, [])
+
   // ---------------------------------------------------------------------------
   // Interaction handlers
   // ---------------------------------------------------------------------------
 
   const handleEventClick = useCallback((arg: EventClickArg) => {
+    setDeleteConfirmMode(null)
+    setDeletingReservation(false)
+    setReservationActionError('')
+
     if (arg.event.extendedProps.type === 'blackout') {
       setSelectedEvent({
         id: arg.event.id,
@@ -500,6 +537,154 @@ export function CalendarScreen() {
     })
   }, [])
 
+  const handleEditSelectedReservation = useCallback(() => {
+    if (!selectedEvent || selectedEvent.extendedProps?.type !== 'occurrence') {
+      return
+    }
+
+    const ownerId = reservationOwnerIdFor(selectedEvent)
+    if (!currentUser?.isAppAdmin && ownerId !== currentUser?.appUserId) {
+      setReservationActionError('Only the reservation owner or an app admin can edit this reservation.')
+      return
+    }
+
+    const resourceId = reservationResourceIdFor(selectedEvent)
+    const startDate = new Date(selectedEvent.start as string)
+    const endDate = new Date(selectedEvent.end as string)
+
+    if (!selectedEvent.id || !resourceId || isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+      setReservationActionError('This reservation could not be opened for editing.')
+      return
+    }
+
+    setEditingReservation({
+      start: startDate,
+      end: endDate,
+      reservation: {
+        id: selectedEvent.id,
+        resourceId,
+        comments: reservationCommentsFor(selectedEvent),
+      },
+    })
+    closeReservationInfo()
+  }, [closeReservationInfo, currentUser?.appUserId, currentUser?.isAppAdmin, selectedEvent])
+
+  const handleDeleteSelectedReservation = useCallback(async () => {
+    if (!selectedEvent || selectedEvent.extendedProps?.type !== 'occurrence') {
+      return
+    }
+
+    const ownerId = reservationOwnerIdFor(selectedEvent)
+    if (!currentUser?.isAppAdmin && ownerId !== currentUser?.appUserId) {
+      setReservationActionError('Only the reservation owner or an app admin can delete this reservation.')
+      return
+    }
+
+    if (!selectedEvent.id) {
+      setReservationActionError('This reservation could not be deleted.')
+      return
+    }
+
+    setDeletingReservation(true)
+    setReservationActionError('')
+
+    try {
+      await Sfsures_reservationoccurrencesService.update(
+        selectedEvent.id,
+        {
+          sfsures_recordstatus: RECORD_STATUS_CANCELLED,
+        } as unknown as Parameters<typeof Sfsures_reservationoccurrencesService.update>[1]
+      )
+
+      closeReservationInfo()
+      refreshCalendar()
+    } catch (err) {
+      console.error('Reservation delete failed:', err)
+      const detail = err instanceof Error ? err.message : 'Dataverse rejected the update.'
+      setReservationActionError(
+        `Delete failed: ${detail} Only the reservation owner or an admin can delete this reservation.`
+      )
+    } finally {
+      setDeletingReservation(false)
+    }
+  }, [
+    closeReservationInfo,
+    currentUser?.appUserId,
+    currentUser?.isAppAdmin,
+    refreshCalendar,
+    selectedEvent,
+  ])
+
+  const handleDeleteSelectedSeries = useCallback(async () => {
+    if (!selectedEvent || selectedEvent.extendedProps?.type !== 'occurrence') {
+      return
+    }
+
+    const seriesId = reservationSeriesIdFor(selectedEvent)
+    if (!seriesId) {
+      setReservationActionError('This reservation is not part of a recurring series.')
+      return
+    }
+
+    const ownerId = reservationOwnerIdFor(selectedEvent)
+    if (!currentUser?.isAppAdmin && ownerId !== currentUser?.appUserId) {
+      setReservationActionError('Only the reservation owner or an app admin can delete this series.')
+      return
+    }
+
+    setDeletingReservation(true)
+    setReservationActionError('')
+
+    try {
+      const occurrenceResult = await Sfsures_reservationoccurrencesService.getAll({
+        select: ['sfsures_reservationoccurrenceid'],
+        filter:
+          `_sfsures_series_value eq ${seriesId}` +
+          ` and sfsures_recordstatus eq ${RECORD_STATUS_ACTIVE}`,
+        top: 500,
+      })
+
+      const activeOccurrenceIds = (occurrenceResult.data ?? [])
+        .map((row) => row.sfsures_reservationoccurrenceid)
+        .filter((id): id is string => typeof id === 'string' && id.length > 0)
+
+      await Promise.all(
+        activeOccurrenceIds.map((occurrenceId) =>
+          Sfsures_reservationoccurrencesService.update(
+            occurrenceId,
+            {
+              sfsures_recordstatus: RECORD_STATUS_CANCELLED,
+            } as unknown as Parameters<typeof Sfsures_reservationoccurrencesService.update>[1]
+          )
+        )
+      )
+
+      await Sfsures_reservationseriesesService.update(
+        seriesId,
+        {
+          sfsures_recordstatus: RECORD_STATUS_CANCELLED,
+        } as unknown as Parameters<typeof Sfsures_reservationseriesesService.update>[1]
+      )
+
+      closeReservationInfo()
+      refreshCalendar()
+    } catch (err) {
+      console.error('Reservation series delete failed:', err)
+      const detail = err instanceof Error ? err.message : 'Dataverse rejected the update.'
+      setReservationActionError(
+        `Delete series failed: ${detail} Only the reservation owner or an admin can delete this series.`
+      )
+    } finally {
+      setDeletingReservation(false)
+    }
+  }, [
+    closeReservationInfo,
+    currentUser?.appUserId,
+    currentUser?.isAppAdmin,
+    refreshCalendar,
+    selectedEvent,
+  ])
+
   const handleDateSelect = useCallback((arg: DateSelectArg) => {
     // Open the reservation modal with the selected time range.
     setBookingSlot({ start: arg.start, end: arg.end })
@@ -512,6 +697,26 @@ export function CalendarScreen() {
   // ---------------------------------------------------------------------------
 
   const selectedEventComments = reservationCommentsFor(selectedEvent)
+  const selectedEventSeriesId = reservationSeriesIdFor(selectedEvent)
+  const selectedEventOwnerId = reservationOwnerIdFor(selectedEvent)
+  const selectedEventIsOwnedByCurrentUser =
+    !!selectedEventOwnerId && selectedEventOwnerId === currentUser?.appUserId
+  const selectedEventCanManage =
+    selectedEvent?.extendedProps?.type === 'occurrence' &&
+    (selectedEventIsOwnedByCurrentUser || currentUser?.isAppAdmin === true)
+  const selectedEventDeleteLabel = selectedEventSeriesId ? 'Delete occurrence' : 'Delete reservation'
+  const deleteConfirmTitle =
+    deleteConfirmMode === 'series'
+      ? 'Delete entire series?'
+      : selectedEventSeriesId
+        ? 'Delete this occurrence?'
+        : 'Delete this reservation?'
+  const deleteConfirmText =
+    deleteConfirmMode === 'series'
+      ? 'All active occurrences in this series will be removed from the active calendar.'
+      : 'It will be removed from the active calendar.'
+  const deleteConfirmActionLabel =
+    deleteConfirmMode === 'series' ? 'Delete series' : selectedEventDeleteLabel
 
   return (
     <div className={styles.shell}>
@@ -620,8 +825,9 @@ export function CalendarScreen() {
             dayMaxEvents={true}
             nowIndicator={true}
             height="100%"
-            slotMinTime="06:00:00"
-            slotMaxTime="22:00:00"
+            slotMinTime="00:00:00"
+            slotMaxTime="24:00:00"
+            scrollTime="08:00:00"
             select={handleDateSelect}
             eventClick={handleEventClick}
             datesSet={handleDatesSet}
@@ -633,7 +839,7 @@ export function CalendarScreen() {
       {selectedEvent && (
         <div
           className={styles.popoverBackdrop}
-          onClick={() => setSelectedEvent(null)}
+          onClick={closeReservationInfo}
         >
           <div
             ref={popoverRef}
@@ -647,7 +853,7 @@ export function CalendarScreen() {
           >
             <button
               className={styles.popoverClose}
-              onClick={() => setSelectedEvent(null)}
+              onClick={closeReservationInfo}
               aria-label="Close"
             >
               ×
@@ -687,6 +893,9 @@ export function CalendarScreen() {
                     selectedEvent.end as string
                   )}
                 </p>
+                {selectedEventSeriesId && (
+                  <p className={styles.seriesBadge}>Recurring series</p>
+                )}
                 {selectedEventComments && (
                   <section className={styles.commentsSection} aria-label="Reservation comments">
                     <p className={styles.commentsLabel}>Comments</p>
@@ -746,6 +955,78 @@ export function CalendarScreen() {
                     )}
                   </div>
                 </section>
+                {selectedEventCanManage && (
+                  <section className={styles.actionSection} aria-label="Reservation actions">
+                    {reservationActionError && (
+                      <p className={styles.actionError} role="alert">
+                        {reservationActionError}
+                      </p>
+                    )}
+                    {deleteConfirmMode ? (
+                      <div className={styles.deleteConfirm}>
+                        <p className={styles.deleteTitle}>{deleteConfirmTitle}</p>
+                        <p className={styles.deleteText}>{deleteConfirmText}</p>
+                        {!selectedEventIsOwnedByCurrentUser && currentUser?.isAppAdmin && (
+                          <p className={styles.deleteText}>
+                            You are deleting this as an app admin.
+                          </p>
+                        )}
+                        <div className={styles.actionRow}>
+                          <button
+                            className={styles.secondaryAction}
+                            onClick={() => {
+                              setDeleteConfirmMode(null)
+                              setReservationActionError('')
+                            }}
+                            disabled={deletingReservation}
+                          >
+                            Keep
+                          </button>
+                          <button
+                            className={styles.dangerAction}
+                            onClick={
+                              deleteConfirmMode === 'series'
+                                ? handleDeleteSelectedSeries
+                                : handleDeleteSelectedReservation
+                            }
+                            disabled={deletingReservation}
+                          >
+                            {deletingReservation ? 'Deleting...' : deleteConfirmActionLabel}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className={styles.actionRow}>
+                        <button
+                          className={styles.secondaryAction}
+                          onClick={handleEditSelectedReservation}
+                        >
+                          Edit reservation
+                        </button>
+                        <button
+                          className={styles.dangerGhostAction}
+                          onClick={() => {
+                            setDeleteConfirmMode('occurrence')
+                            setReservationActionError('')
+                          }}
+                        >
+                          {selectedEventDeleteLabel}
+                        </button>
+                        {selectedEventSeriesId && (
+                          <button
+                            className={styles.dangerGhostAction}
+                            onClick={() => {
+                              setDeleteConfirmMode('series')
+                              setReservationActionError('')
+                            }}
+                          >
+                            Delete series
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </section>
+                )}
               </>
             )}
           </div>
@@ -758,6 +1039,18 @@ export function CalendarScreen() {
           start={bookingSlot.start}
           end={bookingSlot.end}
           onClose={() => setBookingSlot(null)}
+          onBooked={() => {
+            refreshCalendar()
+          }}
+        />
+      )}
+
+      {editingReservation && (
+        <BookingModal
+          start={editingReservation.start}
+          end={editingReservation.end}
+          initialReservation={editingReservation.reservation}
+          onClose={() => setEditingReservation(null)}
           onBooked={() => {
             refreshCalendar()
           }}

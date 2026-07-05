@@ -23,6 +23,8 @@ export interface Sfsures_groupsBase {
   overriddencreatedon?: string;
   sfsures_description?: string;
   sfsures_groupid: string;
+  sfsures_groupkey: string;
+  sfsures_issystemgroup?: boolean;
   sfsures_name: string;
   sfsures_recordstatus?: Sfsures_groupssfsures_recordstatus;
   statecode: Sfsures_groupsstatecode;
@@ -43,6 +45,7 @@ export interface Sfsures_groups extends Sfsures_groupsBase {
   modifiedonbehalfbyname?: string;
   modifiedonbehalfbyyominame: string;
   organizationidname: string;
+  sfsures_issystemgroupname?: string;
   sfsures_recordstatusname?: string;
   statecodename?: string;
   statuscodename?: string;

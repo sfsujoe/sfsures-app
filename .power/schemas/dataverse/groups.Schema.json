@@ -184,6 +184,46 @@
           "required": true,
           "x-ms-keyType": "primary"
         },
+        "sfsures_groupkey": {
+          "type": "string",
+          "title": "Group Key",
+          "x-ms-dataverse-attribute": "sfsures_groupkey",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "sfsures_GroupKey",
+          "required": true,
+          "maxLength": 100
+        },
+        "sfsures_issystemgroup": {
+          "type": "string",
+          "title": "Is System Group",
+          "x-ms-dataverse-attribute": "sfsures_issystemgroup",
+          "x-ms-dataverse-type": "BooleanType",
+          "x-ms-schema-name": "sfsures_IsSystemGroup",
+          "enum": [
+            "No",
+            "Yes"
+          ],
+          "x-ms-enum-values": [
+            0,
+            1
+          ],
+          "Color": [
+            null,
+            null
+          ],
+          "x-ms-optionsetmetadataid": "9df20553-9d78-f111-ab0e-7ced8d3d4f6a",
+          "x-ms-isGlobal": false,
+          "x-ms-optionsetdisplayname": "Is System Group",
+          "x-ms-optionSetType": "Boolean"
+        },
+        "sfsures_issystemgroupname": {
+          "type": "string",
+          "title": "sfsures_issystemgroupname",
+          "x-ms-dataverse-attribute": "sfsures_issystemgroupname",
+          "x-ms-dataverse-type": "VirtualType",
+          "x-ms-schema-name": "sfsures_issystemgroupName",
+          "x-ms-read-only": true
+        },
         "sfsures_name": {
           "type": "string",
           "title": "Name",
@@ -318,6 +358,7 @@
         "modifiedonbehalfbyyominame",
         "organizationidname",
         "sfsures_groupid",
+        "sfsures_groupkey",
         "sfsures_name",
         "statecode"
       ]

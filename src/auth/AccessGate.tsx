@@ -21,8 +21,16 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Office365UsersService } from '../generated/services/Office365UsersService'
 import { Sfsures_appusersService } from '../generated/services/Sfsures_appusersService'
+import { Sfsures_groupsService } from '../generated/services/Sfsures_groupsService'
+import { Sfsures_usergroupassignmentsService } from '../generated/services/Sfsures_usergroupassignmentsService'
 import { useTheme } from '../theme/ThemeContext'
-import { UserProvider, type CurrentUser } from './UserContext'
+import {
+  APP_ADMIN_GROUP_KEY,
+  REPORT_VIEWERS_GROUP_KEY,
+  UserProvider,
+  type CurrentUser,
+  type CurrentUserGroup,
+} from './UserContext'
 import styles from './AccessGate.module.css'
 
 function extractSfStateId(upn: string | undefined | null): string | null {
@@ -30,6 +38,51 @@ function extractSfStateId(upn: string | undefined | null): string | null {
   const raw = upn.split('@')[0]
   if (!raw || raw.length < 9) return null
   return raw.substring(0, 9)
+}
+
+function normalizeGroupKey(groupKey: string | undefined | null): string {
+  return groupKey?.trim().toUpperCase() ?? ''
+}
+
+async function loadCurrentUserGroups(appUserId: string): Promise<CurrentUserGroup[]> {
+  const assignmentResult = await Sfsures_usergroupassignmentsService.getAll({
+    select: ['sfsures_usergroupassignmentid', '_sfsures_group_value', '_sfsures_user_value', 'statecode'],
+    filter: `_sfsures_user_value eq ${appUserId} and statecode eq 0`,
+    top: 200,
+  })
+
+  const groupIds = new Set(
+    (assignmentResult.data ?? [])
+      .map((assignment) => assignment._sfsures_group_value)
+      .filter((groupId): groupId is string => !!groupId)
+  )
+
+  if (groupIds.size === 0) {
+    return []
+  }
+
+  const groupResult = await Sfsures_groupsService.getAll({
+    select: [
+      'sfsures_groupid',
+      'sfsures_name',
+      'sfsures_groupkey',
+      'sfsures_issystemgroup',
+      'sfsures_recordstatus',
+    ],
+    filter: 'sfsures_recordstatus eq 997330000',
+    orderBy: ['sfsures_name asc'],
+    top: 500,
+  })
+
+  return (groupResult.data ?? [])
+    .filter((group) => groupIds.has(group.sfsures_groupid))
+    .map((group) => ({
+      groupId: group.sfsures_groupid,
+      name: group.sfsures_name,
+      groupKey: normalizeGroupKey(group.sfsures_groupkey),
+      isSystemGroup: group.sfsures_issystemgroup === true,
+    }))
+    .filter((group) => group.groupKey)
 }
 
 type GateStatus =
@@ -87,12 +140,21 @@ export function AccessGate({ children }: AccessGateProps) {
           return
         }
 
+        const groups = await loadCurrentUserGroups(row.sfsures_appuserid)
+        const groupKeys = Array.from(new Set(groups.map((group) => group.groupKey)))
+        const isAppAdmin = groupKeys.includes(APP_ADMIN_GROUP_KEY)
+        const canViewReports = isAppAdmin || groupKeys.includes(REPORT_VIEWERS_GROUP_KEY)
+
         setCurrentUser({
           appUserId: row.sfsures_appuserid,
           userPrincipalName: upn,
           sfStateId: row.sfsures_sfstateid,
           displayName: row.sfsures_displayname ?? '',
           email: row.sfsures_email ?? '',
+          groups,
+          groupKeys,
+          isAppAdmin,
+          canViewReports,
         })
         setStatus('allowed')
       } catch (err) {

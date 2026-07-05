@@ -303,6 +303,19 @@
   line-height: 1.5;
 }
 
+.seriesBadge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  margin: 0.75rem 0 0;
+  padding: 0.25rem 0.625rem;
+  border-radius: 6px;
+  background: rgba(68, 44, 139, 0.08);
+  color: var(--sfsures-primary, #442C8B);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
 .commentsSection {
   margin-top: 1rem;
   padding-top: 1rem;
@@ -437,6 +450,105 @@
   color: #666;
 }
 
+.actionSection {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid #ededed;
+}
+
+.actionRow {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.625rem;
+  flex-wrap: wrap;
+}
+
+.secondaryAction,
+.dangerGhostAction,
+.dangerAction {
+  font-family: inherit;
+  min-height: 34px;
+  padding: 0.45rem 0.875rem;
+  border-radius: 6px;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s, opacity 0.12s;
+}
+
+.secondaryAction {
+  border: 1px solid #d0d0d0;
+  background: #ffffff;
+  color: #333;
+}
+
+.secondaryAction:hover:not(:disabled) {
+  background: #f5f5f5;
+}
+
+.dangerGhostAction {
+  border: 1px solid #fecaca;
+  background: #ffffff;
+  color: #b91c1c;
+}
+
+.dangerGhostAction:hover:not(:disabled) {
+  background: #fef2f2;
+  border-color: #fca5a5;
+}
+
+.dangerAction {
+  border: 1px solid #b91c1c;
+  background: #b91c1c;
+  color: #ffffff;
+}
+
+.dangerAction:hover:not(:disabled) {
+  background: #991b1b;
+  border-color: #991b1b;
+}
+
+.secondaryAction:disabled,
+.dangerGhostAction:disabled,
+.dangerAction:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.deleteConfirm {
+  display: grid;
+  gap: 0.625rem;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  background: #fffafa;
+  padding: 0.875rem;
+}
+
+.deleteTitle {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: #1a1a1a;
+}
+
+.deleteText {
+  margin: -0.25rem 0 0;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  color: #555;
+}
+
+.actionError {
+  margin: 0 0 0.75rem;
+  border-left: 3px solid #dc2626;
+  border-radius: 4px;
+  background: #fef2f2;
+  padding: 0.5rem 0.75rem;
+  color: #333;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
 /* ---- Responsive ---- */
 
 @media (max-width: 640px) {
@@ -464,5 +576,15 @@
   .calendarWrap :global(.fc .fc-toolbar) {
     flex-wrap: wrap;
     gap: 0.5rem;
+  }
+
+  .actionRow {
+    flex-direction: column-reverse;
+  }
+
+  .secondaryAction,
+  .dangerGhostAction,
+  .dangerAction {
+    width: 100%;
   }
 }

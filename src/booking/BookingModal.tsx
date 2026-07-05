@@ -1,7 +1,7 @@
 /**
  * BookingModal
  *
- * Creates a single reservation occurrence (no series). Opened by
+ * Creates one-time reservations or recurring reservation series. Opened by
  * CalendarScreen's handleDateSelect with pre-filled start/end times.
  *
  * Flow:
@@ -9,7 +9,7 @@
  *   2. User adjusts start/end if needed
  *   3. On "Reserve": conflict detection runs first (delegable overlap query against
  *      active occurrences + blackout windows for the selected resource)
- *   4. If clear -> create one sfsures_reservationoccurrence row
+ *   4. If clear -> create one occurrence, or create one Series plus N Occurrences
  *   5. Show an in-dialog confirmation with OK focused by default
  *   6. If conflicts -> show details, don't write
  *
@@ -34,6 +34,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Sfsures_resourcesService } from '../generated/services/Sfsures_resourcesService'
 import { Sfsures_reservationoccurrencesService } from '../generated/services/Sfsures_reservationoccurrencesService'
+import { Sfsures_reservationseriesesService } from '../generated/services/Sfsures_reservationseriesesService'
 import { Sfsures_blackoutwindowsService } from '../generated/services/Sfsures_blackoutwindowsService'
 import { useTheme } from '../theme/ThemeContext'
 import { useCurrentUser } from '../auth/UserContext'
@@ -50,10 +51,18 @@ interface BookingModalProps {
   start: Date
   /** Pre-filled from the calendar selection */
   end: Date
+  /** Existing occurrence details when editing from Reservation Info */
+  initialReservation?: EditableReservation
   /** Close the modal without reserving */
   onClose: () => void
   /** Called after a successful create/update — CalendarScreen uses this to refresh */
   onBooked: () => void
+}
+
+export interface EditableReservation {
+  id: string
+  resourceId: string
+  comments: string
 }
 
 interface ResourceOption {
@@ -65,6 +74,9 @@ interface ConflictInfo {
   type: 'reservation' | 'blackout'
   start: string
   end: string
+  occurrenceIndex?: number
+  requestedStart?: string
+  requestedEnd?: string
   ownerName?: string
   reason?: string
 }
@@ -72,9 +84,45 @@ interface ConflictInfo {
 type ModalMode = 'form' | 'success'
 type SaveMode = 'create' | 'edit'
 type SuccessKind = 'created' | 'updated'
+type SuccessScope = 'single' | 'series'
+type RecurrenceFrequency = 'none' | 'daily' | 'weekly' | 'monthly'
+type SeriesFrequency = Exclude<RecurrenceFrequency, 'none'>
+type RecurrenceEndMode = 'count' | 'until'
+type WeekdayKey = 'Sun' | 'Mon' | 'Tue' | 'Wed' | 'Thu' | 'Fri' | 'Sat'
+
+interface RequestedOccurrence {
+  start: Date
+  end: Date
+  index: number
+}
+
+interface RecurrenceBuildResult {
+  occurrences: RequestedOccurrence[]
+  summary: string
+}
 
 const MS_PER_WEEK = 7 * 24 * 60 * 60 * 1000
 const RESERVATION_COMMENTS_FIELD = 'sfsures_comments'
+const RECORD_STATUS_ACTIVE = 997330000
+const SERIES_FREQUENCY = {
+  daily: 997330000,
+  weekly: 997330001,
+  monthly: 997330002,
+} as const
+const SERIES_END_MODE = {
+  until: 997330000,
+  count: 997330001,
+} as const
+const DEFAULT_RECURRENCE_COUNT = 4
+const WEEKDAYS: Array<{ key: WeekdayKey; label: string; index: number }> = [
+  { key: 'Sun', label: 'Sun', index: 0 },
+  { key: 'Mon', label: 'Mon', index: 1 },
+  { key: 'Tue', label: 'Tue', index: 2 },
+  { key: 'Wed', label: 'Wed', index: 3 },
+  { key: 'Thu', label: 'Thu', index: 4 },
+  { key: 'Fri', label: 'Fri', index: 5 },
+  { key: 'Sat', label: 'Sat', index: 6 },
+]
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -92,6 +140,17 @@ function toDatetimeLocal(d: Date): string {
 /** "YYYY-MM-DDTHH:mm" → Date (local timezone) */
 function fromDatetimeLocal(s: string): Date {
   return new Date(s)
+}
+
+function toDateInput(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
+function defaultUntilDateFor(startDate: Date): string {
+  const defaultUntilDate = new Date(startDate)
+  defaultUntilDate.setDate(defaultUntilDate.getDate() + 28)
+  return toDateInput(defaultUntilDate)
 }
 
 /** Date → Dataverse-safe ISO string (no milliseconds) */
@@ -139,11 +198,278 @@ function formatWeekLimit(weeks: number): string {
   return weeks === 1 ? '1 week' : `${weeks} weeks`
 }
 
+function parseWholeNumber(value: string): number | null {
+  const parsed = Number(value)
+  if (!Number.isInteger(parsed)) {
+    return null
+  }
+  return parsed
+}
+
+function addDays(date: Date, days: number): Date {
+  const next = new Date(date)
+  next.setDate(next.getDate() + days)
+  return next
+}
+
+function addMonthsClamped(date: Date, months: number): Date {
+  const target = new Date(
+    date.getFullYear(),
+    date.getMonth() + months,
+    1,
+    date.getHours(),
+    date.getMinutes(),
+    date.getSeconds(),
+    date.getMilliseconds()
+  )
+  const lastDayOfTargetMonth = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate()
+  target.setDate(Math.min(date.getDate(), lastDayOfTargetMonth))
+  return target
+}
+
+function startOfWeek(date: Date): Date {
+  const start = new Date(date)
+  start.setHours(0, 0, 0, 0)
+  start.setDate(start.getDate() - start.getDay())
+  return start
+}
+
+function dateForWeekday(weekStart: Date, weekdayIndex: number, timeSource: Date): Date {
+  const candidate = new Date(weekStart)
+  candidate.setDate(weekStart.getDate() + weekdayIndex)
+  candidate.setHours(
+    timeSource.getHours(),
+    timeSource.getMinutes(),
+    timeSource.getSeconds(),
+    timeSource.getMilliseconds()
+  )
+  return candidate
+}
+
+function endOfDateInput(value: string): Date | null {
+  const parts = value.split('-').map((part) => Number(part))
+  const [year, month, day] = parts
+  if (!year || !month || !day) {
+    return null
+  }
+
+  const date = new Date(year, month - 1, day, 23, 59, 59, 999)
+  return isNaN(date.getTime()) ? null : date
+}
+
+function weekdayKeyForDate(date: Date): WeekdayKey {
+  return WEEKDAYS[date.getDay()].key
+}
+
+function weekdayIndexForKey(key: WeekdayKey): number {
+  return WEEKDAYS.find((weekday) => weekday.key === key)?.index ?? 0
+}
+
+function sortedWeekdays(keys: WeekdayKey[]): WeekdayKey[] {
+  return [...keys].sort((a, b) => weekdayIndexForKey(a) - weekdayIndexForKey(b))
+}
+
+function formatShortDate(date: Date): string {
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+function frequencyNoun(frequency: RecurrenceFrequency, interval: number): string {
+  if (frequency === 'daily') {
+    return interval === 1 ? 'day' : 'days'
+  }
+  if (frequency === 'weekly') {
+    return interval === 1 ? 'week' : 'weeks'
+  }
+  return interval === 1 ? 'month' : 'months'
+}
+
+function formatRecurrenceSummary(
+  frequency: RecurrenceFrequency,
+  interval: number,
+  weekdays: WeekdayKey[],
+  occurrences: RequestedOccurrence[]
+): string {
+  if (frequency === 'none' || occurrences.length <= 1) {
+    return 'One-time reservation.'
+  }
+
+  const cadence =
+    interval === 1
+      ? `Repeats every ${frequencyNoun(frequency, interval)}`
+      : `Repeats every ${interval} ${frequencyNoun(frequency, interval)}`
+  const dayText =
+    frequency === 'weekly' && weekdays.length > 0
+      ? ` on ${sortedWeekdays(weekdays).join(', ')}`
+      : ''
+  const last = occurrences[occurrences.length - 1]
+
+  return `${cadence}${dayText}; ${occurrences.length} occurrences through ${formatShortDate(last.end)}.`
+}
+
+function buildRequestedOccurrences(args: {
+  startDate: Date
+  endDate: Date
+  frequency: RecurrenceFrequency
+  interval: number
+  weekdays: WeekdayKey[]
+  endMode: RecurrenceEndMode
+  occurrenceCount: number
+  untilDate: Date | null
+  maxOccurrences: number
+  maxSpanWeeks: number
+}): RecurrenceBuildResult | { error: string } {
+  const {
+    startDate,
+    endDate,
+    frequency,
+    interval,
+    weekdays,
+    endMode,
+    occurrenceCount,
+    untilDate,
+    maxOccurrences,
+    maxSpanWeeks,
+  } = args
+  const durationMs = endDate.getTime() - startDate.getTime()
+
+  if (durationMs > maxSpanWeeks * MS_PER_WEEK) {
+    return { error: `Reservations may span at most ${formatWeekLimit(maxSpanWeeks)}.` }
+  }
+
+  if (frequency === 'none') {
+    return {
+      occurrences: [{ start: startDate, end: endDate, index: 1 }],
+      summary: 'One-time reservation.',
+    }
+  }
+
+  if (interval < 1) {
+    return { error: 'Repeat interval must be at least 1.' }
+  }
+
+  if (endMode === 'count') {
+    if (occurrenceCount < 2) {
+      return { error: 'Recurring reservations must include at least 2 occurrences.' }
+    }
+    if (occurrenceCount > maxOccurrences) {
+      return { error: `Recurring reservations may include at most ${maxOccurrences} occurrences.` }
+    }
+  }
+
+  if (endMode === 'until') {
+    if (!untilDate) {
+      return { error: 'Choose an end date for the recurring reservation.' }
+    }
+    if (untilDate < startDate) {
+      return { error: 'The recurrence end date must be on or after the start date.' }
+    }
+  }
+
+  if (frequency === 'weekly' && weekdays.length === 0) {
+    return { error: 'Choose at least one weekday for a weekly reservation.' }
+  }
+
+  const occurrences: RequestedOccurrence[] = []
+  const addOccurrence = (candidateStart: Date) => {
+    if (candidateStart < startDate) {
+      return
+    }
+    if (endMode === 'until' && untilDate && candidateStart > untilDate) {
+      return
+    }
+    occurrences.push({
+      start: candidateStart,
+      end: new Date(candidateStart.getTime() + durationMs),
+      index: occurrences.length + 1,
+    })
+  }
+  const targetReached = () => endMode === 'count' && occurrences.length >= occurrenceCount
+
+  if (frequency === 'daily') {
+    for (let step = 0; step < 1000; step += 1) {
+      const candidateStart = addDays(startDate, step * interval)
+      if (endMode === 'until' && untilDate && candidateStart > untilDate) break
+      addOccurrence(candidateStart)
+      if (targetReached()) break
+    }
+  }
+
+  if (frequency === 'weekly') {
+    const weekStart = startOfWeek(startDate)
+    const orderedWeekdays = sortedWeekdays(weekdays)
+
+    for (let week = 0; week < 1000; week += 1) {
+      const candidateWeekStart = addDays(weekStart, week * interval * 7)
+      const firstCandidateOfWeek = dateForWeekday(candidateWeekStart, 0, startDate)
+      if (endMode === 'until' && untilDate && firstCandidateOfWeek > untilDate) break
+
+      for (const weekday of orderedWeekdays) {
+        addOccurrence(dateForWeekday(candidateWeekStart, weekdayIndexForKey(weekday), startDate))
+        if (targetReached()) break
+      }
+
+      if (targetReached()) break
+    }
+  }
+
+  if (frequency === 'monthly') {
+    for (let month = 0; month < 1000; month += 1) {
+      const candidateStart = addMonthsClamped(startDate, month * interval)
+      if (endMode === 'until' && untilDate && candidateStart > untilDate) break
+      addOccurrence(candidateStart)
+      if (targetReached()) break
+    }
+  }
+
+  if (occurrences.length < 2) {
+    return { error: 'Choose a recurrence end point that creates at least 2 occurrences.' }
+  }
+
+  if (occurrences.length > maxOccurrences) {
+    return { error: `Recurring reservations may include at most ${maxOccurrences} occurrences.` }
+  }
+
+  const firstStart = occurrences[0].start
+  const lastEnd = occurrences[occurrences.length - 1].end
+  if (lastEnd.getTime() - firstStart.getTime() > maxSpanWeeks * MS_PER_WEEK) {
+    return { error: `Recurring reservations may span at most ${formatWeekLimit(maxSpanWeeks)}.` }
+  }
+
+  return {
+    occurrences,
+    summary: formatRecurrenceSummary(frequency, interval, weekdays, occurrences),
+  }
+}
+
+function rangesOverlap(startA: string, endA: string, startB: Date, endB: Date): boolean {
+  if (!startA || !endA) {
+    return false
+  }
+  const aStart = new Date(startA)
+  const aEnd = new Date(endA)
+  return aStart < endB && aEnd > startB
+}
+
+function formatConflictPrefix(conflict: ConflictInfo): string {
+  if (!conflict.occurrenceIndex) {
+    return ''
+  }
+
+  if (conflict.requestedStart && conflict.requestedEnd) {
+    return `Occurrence ${conflict.occurrenceIndex} (${formatRange(
+      conflict.requestedStart,
+      conflict.requestedEnd
+    )}): `
+  }
+
+  return `Occurrence ${conflict.occurrenceIndex}: `
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
-export function BookingModal({ start, end, onClose, onBooked }: BookingModalProps) {
+export function BookingModal({ start, end, initialReservation, onClose, onBooked }: BookingModalProps) {
   const { theme, reservationLimits } = useTheme()
   const currentUser = useCurrentUser()
 
@@ -157,16 +483,25 @@ export function BookingModal({ start, end, onClose, onBooked }: BookingModalProp
   const [resourcesLoading, setResourcesLoading] = useState(true)
 
   // ---- Form state ----
-  const [selectedResourceId, setSelectedResourceId] = useState('')
+  const [selectedResourceId, setSelectedResourceId] = useState(initialReservation?.resourceId ?? '')
   const [startStr, setStartStr] = useState(toDatetimeLocal(start))
   const [endStr, setEndStr] = useState(toDatetimeLocal(end))
-  const [comments, setComments] = useState('')
+  const [comments, setComments] = useState(initialReservation?.comments ?? '')
+  const [recurrenceFrequency, setRecurrenceFrequency] = useState<RecurrenceFrequency>('none')
+  const [recurrenceInterval, setRecurrenceInterval] = useState('1')
+  const [weeklyDays, setWeeklyDays] = useState<WeekdayKey[]>([weekdayKeyForDate(start)])
+  const [recurrenceEndMode, setRecurrenceEndMode] = useState<RecurrenceEndMode>('count')
+  const [occurrenceCount, setOccurrenceCount] = useState(String(DEFAULT_RECURRENCE_COUNT))
+  const [untilDate, setUntilDate] = useState(() => defaultUntilDateFor(start))
 
   // ---- Modal flow state ----
   const [mode, setMode] = useState<ModalMode>('form')
-  const [saveMode, setSaveMode] = useState<SaveMode>('create')
+  const [saveMode, setSaveMode] = useState<SaveMode>(initialReservation ? 'edit' : 'create')
   const [successKind, setSuccessKind] = useState<SuccessKind>('created')
-  const [bookingId, setBookingId] = useState<string | null>(null)
+  const [successScope, setSuccessScope] = useState<SuccessScope>('single')
+  const [successOccurrenceCount, setSuccessOccurrenceCount] = useState(1)
+  const [successRecurrenceSummary, setSuccessRecurrenceSummary] = useState('')
+  const [bookingId, setBookingId] = useState<string | null>(initialReservation?.id ?? null)
 
   // ---- Submission state ----
   const [saving, setSaving] = useState(false)
@@ -179,9 +514,12 @@ export function BookingModal({ start, end, onClose, onBooked }: BookingModalProp
   const successMessage =
     successKind === 'updated'
       ? 'Your reservation changes have been saved.'
-      : 'Your reservation has been saved.'
+      : successScope === 'series'
+        ? 'Your recurring reservation has been saved.'
+        : 'Your reservation has been saved.'
   const titleId = mode === 'success' ? 'booking-success-title' : 'booking-modal-title'
   const descriptionId = mode === 'success' ? 'booking-success-description' : undefined
+  const isRecurringCreate = saveMode === 'create' && recurrenceFrequency !== 'none'
 
   useEffect(() => {
     if (mode !== 'success') return
@@ -210,7 +548,7 @@ export function BookingModal({ start, end, onClose, onBooked }: BookingModalProp
         setResources(opts)
 
         // Auto-select the first resource if only one exists (common in early demo data).
-        if (opts.length === 1) {
+        if (opts.length === 1 && !initialReservation?.resourceId) {
           setSelectedResourceId(opts[0].id)
         }
       } catch (err) {
@@ -222,7 +560,43 @@ export function BookingModal({ start, end, onClose, onBooked }: BookingModalProp
     }
 
     load()
+  }, [initialReservation?.resourceId])
+
+  const handleRecurrenceFrequencyChange = useCallback((frequency: RecurrenceFrequency) => {
+    setRecurrenceFrequency(frequency)
+    setConflicts([])
+    setError('')
+
+    if (frequency === 'weekly' && recurrenceFrequency !== 'weekly') {
+      const parsedStart = fromDatetimeLocal(startStr)
+      if (!isNaN(parsedStart.getTime())) {
+        setWeeklyDays([weekdayKeyForDate(parsedStart)])
+      }
+    }
+  }, [recurrenceFrequency, startStr])
+
+  const toggleWeekday = useCallback((weekday: WeekdayKey) => {
+    setWeeklyDays((current) => {
+      if (current.includes(weekday)) {
+        return current.filter((day) => day !== weekday)
+      }
+      return sortedWeekdays([...current, weekday])
+    })
+    setConflicts([])
+    setError('')
   }, [])
+
+  const resetRecurrenceFields = useCallback(() => {
+    const parsedStart = fromDatetimeLocal(startStr)
+    const recurrenceBaseDate = isNaN(parsedStart.getTime()) ? start : parsedStart
+
+    setRecurrenceFrequency('none')
+    setRecurrenceInterval('1')
+    setWeeklyDays([weekdayKeyForDate(recurrenceBaseDate)])
+    setRecurrenceEndMode('count')
+    setOccurrenceCount(String(DEFAULT_RECURRENCE_COUNT))
+    setUntilDate(defaultUntilDateFor(recurrenceBaseDate))
+  }, [start, startStr])
 
   const handleEditBooking = useCallback(() => {
     if (!bookingId) return
@@ -256,20 +630,40 @@ export function BookingModal({ start, end, onClose, onBooked }: BookingModalProp
       return
     }
 
-    if (endDate.getTime() - startDate.getTime() > reservationLimits.maxSpanWeeks * MS_PER_WEEK) {
-      setError(`Reservations may span at most ${formatWeekLimit(reservationLimits.maxSpanWeeks)}.`)
-      return
-    }
-
     if (!currentUser) {
       setError('User identity not available. Try reloading the app.')
       return
     }
 
+    const isEditing = saveMode === 'edit'
+    const interval = parseWholeNumber(recurrenceInterval)
+    const count = parseWholeNumber(occurrenceCount)
+    const recurrenceBuild = buildRequestedOccurrences({
+      startDate,
+      endDate,
+      frequency: isEditing ? 'none' : recurrenceFrequency,
+      interval: interval ?? 0,
+      weekdays: weeklyDays,
+      endMode: recurrenceEndMode,
+      occurrenceCount: count ?? 0,
+      untilDate: endOfDateInput(untilDate),
+      maxOccurrences: reservationLimits.maxOccurrences,
+      maxSpanWeeks: reservationLimits.maxSpanWeeks,
+    })
+
+    if ('error' in recurrenceBuild) {
+      setError(recurrenceBuild.error)
+      return
+    }
+
+    const requestedOccurrences = recurrenceBuild.occurrences
+    const firstOccurrence = requestedOccurrences[0]
+    const lastOccurrence = requestedOccurrences[requestedOccurrences.length - 1]
+    const isRecurring = !isEditing && requestedOccurrences.length > 1
+
     setSaving(true)
 
     try {
-      const isEditing = saveMode === 'edit'
       if (isEditing && !bookingId) {
         setError('Could not reopen this reservation for editing. Close the dialog and try again.')
         setSaving(false)
@@ -278,10 +672,10 @@ export function BookingModal({ start, end, onClose, onBooked }: BookingModalProp
 
       // --- Conflict detection ---
       // Overlap condition: existing.start < new.end AND existing.end > new.start
-      const startIso = toDataverseIso(startDate)
-      const endIso = toDataverseIso(endDate)
+      const startIso = toDataverseIso(firstOccurrence.start)
+      const endIso = toDataverseIso(lastOccurrence.end)
       const excludeCurrentBooking =
-        isEditing && bookingId
+        !isRecurring && isEditing && bookingId
           ? ` and sfsures_reservationoccurrenceid ne ${bookingId}`
           : ''
 
@@ -299,7 +693,8 @@ export function BookingModal({ start, end, onClose, onBooked }: BookingModalProp
             ` and sfsures_start lt ${endIso}` +
             ` and sfsures_end gt ${startIso}` +
             excludeCurrentBooking,
-          top: 10,
+          orderBy: ['sfsures_start asc'],
+          top: 500,
         }),
         // Blackout windows for this resource that overlap the requested window.
         Sfsures_blackoutwindowsService.getAll({
@@ -313,36 +708,60 @@ export function BookingModal({ start, end, onClose, onBooked }: BookingModalProp
             `_sfsures_resource_value eq ${selectedResourceId}` +
             ` and sfsures_start lt ${endIso}` +
             ` and sfsures_end gt ${startIso}`,
-          top: 10,
+          orderBy: ['sfsures_start asc'],
+          top: 500,
         }),
       ])
 
       const found: ConflictInfo[] = []
 
-      for (const occ of occResult.data ?? []) {
-        found.push({
-          type: 'reservation',
-          start: occ.sfsures_start ?? '',
-          end: occ.sfsures_end ?? '',
-          ownerName: undefined,
-        })
-      }
+      for (const requested of requestedOccurrences) {
+        const requestedStartIso = toDataverseIso(requested.start)
+        const requestedEndIso = toDataverseIso(requested.end)
 
-      for (const bw of blackoutResult.data ?? []) {
-        found.push({
-          type: 'blackout',
-          start: bw.sfsures_start ?? '',
-          end: bw.sfsures_end ?? '',
-          reason: bw.sfsures_reason ?? undefined,
-        })
+        for (const occ of occResult.data ?? []) {
+          if (!rangesOverlap(occ.sfsures_start ?? '', occ.sfsures_end ?? '', requested.start, requested.end)) {
+            continue
+          }
+
+          found.push({
+            type: 'reservation',
+            start: occ.sfsures_start ?? '',
+            end: occ.sfsures_end ?? '',
+            occurrenceIndex: requested.index,
+            requestedStart: requestedStartIso,
+            requestedEnd: requestedEndIso,
+            ownerName: undefined,
+          })
+        }
+
+        for (const bw of blackoutResult.data ?? []) {
+          if (!rangesOverlap(bw.sfsures_start ?? '', bw.sfsures_end ?? '', requested.start, requested.end)) {
+            continue
+          }
+
+          found.push({
+            type: 'blackout',
+            start: bw.sfsures_start ?? '',
+            end: bw.sfsures_end ?? '',
+            occurrenceIndex: requested.index,
+            requestedStart: requestedStartIso,
+            requestedEnd: requestedEndIso,
+            reason: bw.sfsures_reason ?? undefined,
+          })
+        }
       }
 
       if (found.length > 0) {
         setConflicts(found)
         setError(
-          found.length === 1
-            ? 'This time slot conflicts with an existing reservation or blackout window.'
-            : `This time slot conflicts with ${found.length} existing reservations or blackout windows.`
+          isRecurring
+            ? found.length === 1
+              ? 'One occurrence conflicts with an existing reservation or blackout window.'
+              : `${found.length} occurrences conflict with existing reservations or blackout windows.`
+            : found.length === 1
+              ? 'This time slot conflicts with an existing reservation or blackout window.'
+              : `This time slot conflicts with ${found.length} existing reservations or blackout windows.`
         )
         setSaving(false)
         return
@@ -352,38 +771,120 @@ export function BookingModal({ start, end, onClose, onBooked }: BookingModalProp
       // Lookup writes use @odata.bind navigation properties. The generated type is
       // over-strict for system-defaulted fields, so cast at the service boundary.
       const trimmedComments = comments.trim()
-      const occurrenceFields = {
-        sfsures_start: startIso,
-        sfsures_end: endIso,
-        sfsures_recordstatus: 997330000,
+      const makeOccurrenceFields = (
+        occurrence: RequestedOccurrence,
+        seriesId?: string,
+        includeBookingOwner = true
+      ) => ({
+        sfsures_name: `${selectedResourceName} ${formatShortDate(occurrence.start)}`,
+        sfsures_start: toDataverseIso(occurrence.start),
+        sfsures_end: toDataverseIso(occurrence.end),
+        sfsures_recordstatus: RECORD_STATUS_ACTIVE,
         [RESERVATION_COMMENTS_FIELD]: trimmedComments || null,
         'sfsures_Resource@odata.bind': `/sfsures_resources(${selectedResourceId})`,
-        'sfsures_BookingOwner@odata.bind': `/sfsures_appusers(${currentUser.appUserId})`,
-      }
+        ...(includeBookingOwner
+          ? { 'sfsures_BookingOwner@odata.bind': `/sfsures_appusers(${currentUser.appUserId})` }
+          : {}),
+        ...(seriesId
+          ? { 'sfsures_Series@odata.bind': `/sfsures_reservationserieses(${seriesId})` }
+          : {}),
+      })
 
       if (isEditing && bookingId) {
         await Sfsures_reservationoccurrencesService.update(
           bookingId,
-          occurrenceFields as unknown as Parameters<typeof Sfsures_reservationoccurrencesService.update>[1]
+          makeOccurrenceFields(firstOccurrence, undefined, false) as unknown as Parameters<typeof Sfsures_reservationoccurrencesService.update>[1]
         )
+        setSuccessScope('single')
+        setSuccessOccurrenceCount(1)
+        setSuccessRecurrenceSummary('')
         setSuccessKind('updated')
+      } else if (isRecurring) {
+        let seriesId: string | null = null
+        const createdOccurrenceIds: string[] = []
+
+        try {
+          const seriesResult = await Sfsures_reservationseriesesService.create({
+            sfsures_name: `${selectedResourceName} recurring reservation`,
+            sfsures_comments: trimmedComments || null,
+            sfsures_frequency: SERIES_FREQUENCY[recurrenceFrequency as SeriesFrequency],
+            sfsures_interval: interval ?? 1,
+            sfsures_daysofweek:
+              recurrenceFrequency === 'weekly' ? sortedWeekdays(weeklyDays).join(',') : null,
+            sfsures_endmode: SERIES_END_MODE[recurrenceEndMode],
+            sfsures_occurrencecount:
+              recurrenceEndMode === 'count' ? requestedOccurrences.length : null,
+            sfsures_rangestart: toDataverseIso(firstOccurrence.start),
+            sfsures_untildate:
+              recurrenceEndMode === 'until' && endOfDateInput(untilDate)
+                ? toDataverseIso(endOfDateInput(untilDate) as Date)
+                : null,
+            sfsures_recordstatus: RECORD_STATUS_ACTIVE,
+            'sfsures_Resource@odata.bind': `/sfsures_resources(${selectedResourceId})`,
+            'sfsures_BookingOwner@odata.bind': `/sfsures_appusers(${currentUser.appUserId})`,
+          } as unknown as Parameters<typeof Sfsures_reservationseriesesService.create>[0])
+
+          seriesId = seriesResult.data?.sfsures_reservationseriesid ?? null
+          if (!seriesId) {
+            throw new Error('The series was created but Dataverse did not return its ID.')
+          }
+
+          for (const occurrence of requestedOccurrences) {
+            const occurrenceResult = await Sfsures_reservationoccurrencesService.create(
+              makeOccurrenceFields(occurrence, seriesId) as unknown as Parameters<
+                typeof Sfsures_reservationoccurrencesService.create
+              >[0]
+            )
+            const occurrenceId = occurrenceResult.data?.sfsures_reservationoccurrenceid
+            if (occurrenceId) {
+              createdOccurrenceIds.push(occurrenceId)
+            }
+          }
+        } catch (writeErr) {
+          const cleanupTasks = [
+            ...createdOccurrenceIds.map((id) => Sfsures_reservationoccurrencesService.delete(id)),
+            ...(seriesId ? [Sfsures_reservationseriesesService.delete(seriesId)] : []),
+          ]
+
+          if (cleanupTasks.length > 0) {
+            const cleanupResults = await Promise.allSettled(cleanupTasks)
+            const cleanupFailed = cleanupResults.some((result) => result.status === 'rejected')
+            if (cleanupFailed) {
+              console.warn('Recurring reservation cleanup failed after a partial create.', cleanupResults)
+            }
+          }
+
+          throw writeErr
+        }
+
+        setBookingId(null)
+        setSuccessScope('series')
+        setSuccessOccurrenceCount(requestedOccurrences.length)
+        setSuccessRecurrenceSummary(recurrenceBuild.summary)
+        setSuccessKind('created')
+        resetRecurrenceFields()
       } else {
         const result = await Sfsures_reservationoccurrencesService.create(
-          occurrenceFields as unknown as Parameters<typeof Sfsures_reservationoccurrencesService.create>[0]
+          makeOccurrenceFields(firstOccurrence) as unknown as Parameters<typeof Sfsures_reservationoccurrencesService.create>[0]
         )
         setBookingId(result.data?.sfsures_reservationoccurrenceid ?? null)
         setSaveMode('edit')
+        setSuccessScope('single')
+        setSuccessOccurrenceCount(1)
+        setSuccessRecurrenceSummary('')
         setSuccessKind('created')
+        resetRecurrenceFields()
       }
 
       setMode('success')
       onBooked()
     } catch (err) {
       console.error('Reservation failed:', err)
+      const detail = err instanceof Error ? err.message : 'An unexpected error occurred.'
       setError(
-        err instanceof Error
-          ? `Reservation failed: ${err.message}`
-          : 'An unexpected error occurred while creating the reservation.'
+        saveMode === 'edit'
+          ? `Reservation update failed: ${detail} Only the reservation owner or an admin can edit this reservation.`
+          : `Reservation failed: ${detail}`
       )
     } finally {
       setSaving(false)
@@ -393,10 +894,19 @@ export function BookingModal({ start, end, onClose, onBooked }: BookingModalProp
     startStr,
     endStr,
     comments,
+    recurrenceFrequency,
+    recurrenceInterval,
+    weeklyDays,
+    recurrenceEndMode,
+    occurrenceCount,
+    untilDate,
+    reservationLimits.maxOccurrences,
     reservationLimits.maxSpanWeeks,
     currentUser,
     saveMode,
     bookingId,
+    selectedResourceName,
+    resetRecurrenceFields,
     onBooked,
   ])
 
@@ -411,7 +921,13 @@ export function BookingModal({ start, end, onClose, onBooked }: BookingModalProp
 
   // ---- Render ----
   const canSubmit = !!selectedResourceId && !!startStr && !!endStr && !saving
-  const submitLabel = saveMode === 'edit' ? 'Save Changes' : 'Reserve'
+  const submitLabel = saveMode === 'edit' ? 'Save Changes' : isRecurringCreate ? 'Reserve Series' : 'Reserve'
+  const savingLabel = isRecurringCreate ? 'Reserving series...' : 'Reserving...'
+  const parsedStartForDateInput = fromDatetimeLocal(startStr)
+  const minUntilDate = isNaN(parsedStartForDateInput.getTime())
+    ? toDateInput(start)
+    : toDateInput(parsedStartForDateInput)
+  const recurrenceIntervalNumber = parseWholeNumber(recurrenceInterval) ?? 1
 
   return (
     <div className={styles.backdrop} onClick={onClose}>
@@ -478,7 +994,18 @@ export function BookingModal({ start, end, onClose, onBooked }: BookingModalProp
               <p className={styles.successMessage}>{successMessage}</p>
               <div className={styles.successSummary}>
                 <p className={styles.summaryResource}>{selectedResourceName}</p>
-                <p className={styles.summaryTime}>{formatInputRange(startStr, endStr)}</p>
+                <p className={styles.summaryTime}>
+                  {successScope === 'series' ? 'First occurrence: ' : ''}
+                  {formatInputRange(startStr, endStr)}
+                </p>
+                {successScope === 'series' && (
+                  <div className={styles.summarySeriesBlock}>
+                    <p className={styles.summaryLabel}>
+                      {successOccurrenceCount} reservations created
+                    </p>
+                    <p className={styles.summarySeries}>{successRecurrenceSummary}</p>
+                  </div>
+                )}
                 {comments.trim() && (
                   <div className={styles.summaryCommentsBlock}>
                     <p className={styles.summaryLabel}>Comments</p>
@@ -564,6 +1091,164 @@ export function BookingModal({ start, end, onClose, onBooked }: BookingModalProp
               Reservations can span up to {formatWeekLimit(reservationLimits.maxSpanWeeks)}.
             </p>
 
+            {/* Recurrence */}
+            {saveMode === 'create' && (
+              <section className={styles.recurrenceSection} aria-labelledby="booking-repeat-label">
+                <div className={styles.field}>
+                  <p id="booking-repeat-label" className={styles.label}>
+                    Repeat
+                  </p>
+                  <div className={styles.segmentedControl} role="group" aria-label="Repeat pattern">
+                    {[
+                      ['none', 'None'],
+                      ['daily', 'Daily'],
+                      ['weekly', 'Weekly'],
+                      ['monthly', 'Monthly'],
+                    ].map(([value, label]) => (
+                      <button
+                        key={value}
+                        type="button"
+                        className={
+                          recurrenceFrequency === value
+                            ? `${styles.segmentButton} ${styles.segmentButtonActive}`
+                            : styles.segmentButton
+                        }
+                        aria-pressed={recurrenceFrequency === value}
+                        onClick={() => handleRecurrenceFrequencyChange(value as RecurrenceFrequency)}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {isRecurringCreate && (
+                  <div className={styles.recurrenceDetails}>
+                    <div className={styles.inlineField}>
+                      <label className={styles.label} htmlFor="booking-repeat-interval">
+                        Every
+                      </label>
+                      <div className={styles.intervalControl}>
+                        <input
+                          id="booking-repeat-interval"
+                          type="number"
+                          min="1"
+                          max="99"
+                          inputMode="numeric"
+                          className={styles.compactInput}
+                          value={recurrenceInterval}
+                          onChange={(e) => {
+                            setRecurrenceInterval(e.target.value)
+                            setConflicts([])
+                            setError('')
+                          }}
+                        />
+                        <span className={styles.intervalUnit}>
+                          {frequencyNoun(recurrenceFrequency, recurrenceIntervalNumber)}
+                        </span>
+                      </div>
+                    </div>
+
+                    {recurrenceFrequency === 'weekly' && (
+                      <div className={styles.field}>
+                        <p className={styles.label}>On</p>
+                        <div className={styles.weekdayGroup} role="group" aria-label="Repeat on">
+                          {WEEKDAYS.map((weekday) => (
+                            <button
+                              key={weekday.key}
+                              type="button"
+                              className={
+                                weeklyDays.includes(weekday.key)
+                                  ? `${styles.weekdayButton} ${styles.weekdayButtonActive}`
+                                  : styles.weekdayButton
+                              }
+                              aria-pressed={weeklyDays.includes(weekday.key)}
+                              onClick={() => toggleWeekday(weekday.key)}
+                            >
+                              {weekday.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className={styles.field}>
+                      <p className={styles.label}>Ends</p>
+                      <div className={styles.segmentedControl} role="group" aria-label="Recurrence end">
+                        {[
+                          ['count', 'After count'],
+                          ['until', 'On date'],
+                        ].map(([value, label]) => (
+                          <button
+                            key={value}
+                            type="button"
+                            className={
+                              recurrenceEndMode === value
+                                ? `${styles.segmentButton} ${styles.segmentButtonActive}`
+                                : styles.segmentButton
+                            }
+                            aria-pressed={recurrenceEndMode === value}
+                            onClick={() => {
+                              setRecurrenceEndMode(value as RecurrenceEndMode)
+                              setConflicts([])
+                              setError('')
+                            }}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {recurrenceEndMode === 'count' ? (
+                      <div className={styles.inlineField}>
+                        <label className={styles.label} htmlFor="booking-occurrence-count">
+                          Occurrences
+                        </label>
+                        <input
+                          id="booking-occurrence-count"
+                          type="number"
+                          min="2"
+                          max={reservationLimits.maxOccurrences}
+                          inputMode="numeric"
+                          className={styles.compactInput}
+                          value={occurrenceCount}
+                          onChange={(e) => {
+                            setOccurrenceCount(e.target.value)
+                            setConflicts([])
+                            setError('')
+                          }}
+                        />
+                      </div>
+                    ) : (
+                      <div className={styles.inlineField}>
+                        <label className={styles.label} htmlFor="booking-until-date">
+                          End date
+                        </label>
+                        <input
+                          id="booking-until-date"
+                          type="date"
+                          min={minUntilDate}
+                          className={styles.input}
+                          value={untilDate}
+                          onChange={(e) => {
+                            setUntilDate(e.target.value)
+                            setConflicts([])
+                            setError('')
+                          }}
+                        />
+                      </div>
+                    )}
+
+                    <p className={styles.limitHint}>
+                      Recurring reservations can create up to {reservationLimits.maxOccurrences}{' '}
+                      occurrences across {formatWeekLimit(reservationLimits.maxSpanWeeks)}.
+                    </p>
+                  </div>
+                )}
+              </section>
+            )}
+
             {/* Comments */}
             <div className={styles.field}>
               <label className={styles.label} htmlFor="booking-comments">
@@ -592,8 +1277,8 @@ export function BookingModal({ start, end, onClose, onBooked }: BookingModalProp
                     {conflicts.slice(0, 3).map((c, i) => (
                       <li key={i}>
                         {c.type === 'blackout'
-                          ? `Maintenance: ${formatRange(c.start, c.end)}${c.reason ? ` — ${c.reason}` : ''}`
-                          : `Reservation: ${formatRange(c.start, c.end)}${c.ownerName ? ` (${c.ownerName})` : ''}`}
+                          ? `${formatConflictPrefix(c)}Maintenance: ${formatRange(c.start, c.end)}${c.reason ? ` - ${c.reason}` : ''}`
+                          : `${formatConflictPrefix(c)}Reservation: ${formatRange(c.start, c.end)}${c.ownerName ? ` (${c.ownerName})` : ''}`}
                       </li>
                     ))}
                     {conflicts.length > 3 && (
@@ -610,13 +1295,15 @@ export function BookingModal({ start, end, onClose, onBooked }: BookingModalProp
         <div className={styles.footer}>
           {mode === 'success' ? (
             <>
-              <button
-                className={styles.btnSecondary}
-                onClick={handleEditBooking}
-                disabled={!bookingId}
-              >
-                Edit Reservation
-              </button>
+              {successScope === 'single' && (
+                <button
+                  className={styles.btnSecondary}
+                  onClick={handleEditBooking}
+                  disabled={!bookingId}
+                >
+                  Edit Reservation
+                </button>
+              )}
               <button
                 ref={okButtonRef}
                 className={styles.btnPrimary}
@@ -637,7 +1324,7 @@ export function BookingModal({ start, end, onClose, onBooked }: BookingModalProp
                 onClick={handleSubmit}
                 disabled={!canSubmit}
               >
-                {saving ? 'Reserving…' : submitLabel}
+                {saving ? savingLabel : submitLabel}
               </button>
             </>
           )}

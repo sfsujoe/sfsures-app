@@ -12,6 +12,16 @@
 
 import { createContext, useContext, type ReactNode } from 'react'
 
+export const APP_ADMIN_GROUP_KEY = 'APP_ADMINS'
+export const REPORT_VIEWERS_GROUP_KEY = 'REPORT_VIEWERS'
+
+export interface CurrentUserGroup {
+  groupId: string
+  name: string
+  groupKey: string
+  isSystemGroup: boolean
+}
+
 export interface CurrentUser {
   /** Dataverse row GUID for sfsures_appuser */
   appUserId: string
@@ -23,6 +33,14 @@ export interface CurrentUser {
   displayName: string
   /** Email snapshot from the App User row */
   email: string
+  /** Active app groups the user belongs to */
+  groups: CurrentUserGroup[]
+  /** Stable active app group keys for fast UI permission checks */
+  groupKeys: string[]
+  /** App-layer admin UI permission */
+  isAppAdmin: boolean
+  /** App-layer report UI permission */
+  canViewReports: boolean
 }
 
 const UserContext = createContext<CurrentUser | null>(null)
