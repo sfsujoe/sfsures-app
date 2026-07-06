@@ -42,7 +42,7 @@ import { Sfsures_appusersService } from '../generated/services/Sfsures_appusersS
 import { Office365UsersService } from '../generated/services/Office365UsersService'
 import { useTheme } from '../theme/ThemeContext'
 import { useCurrentUser } from '../auth/UserContext'
-import { BookingModal, type EditableReservation } from '../booking/BookingModal'
+import { BookingModal, type EditableReservation, type EditableReservationSeries } from '../booking/BookingModal'
 import { useFocusTrap } from '../a11y/useFocusTrap'
 import sfsuDefaultLogoUrl from '../assets/sfsu-logo.png?inline'
 import styles from './CalendarScreen.module.css'
@@ -203,6 +203,45 @@ function reservationSeriesIdFor(event: EventInput | null): string {
   return typeof seriesId === 'string' ? seriesId : ''
 }
 
+function seriesFrequencyFromDataverse(value: unknown): EditableReservationSeries['frequency'] | null {
+  const numericValue = Number(value)
+  if (numericValue === 997330000) return 'daily'
+  if (numericValue === 997330001) return 'weekly'
+  if (numericValue === 997330002) return 'monthly'
+  return null
+}
+
+function seriesEndModeFromDataverse(value: unknown): EditableReservationSeries['endMode'] {
+  return Number(value) === 997330000 ? 'until' : 'count'
+}
+
+function seriesWeekdaysFromText(value: string | undefined | null): EditableReservationSeries['weekdays'] {
+  const valid = new Set<EditableReservationSeries['weekdays'][number]>([
+    'Sun',
+    'Mon',
+    'Tue',
+    'Wed',
+    'Thu',
+    'Fri',
+    'Sat',
+  ])
+
+  return (value ?? '')
+    .split(',')
+    .map((day) => day.trim())
+    .filter((day): day is EditableReservationSeries['weekdays'][number] =>
+      valid.has(day as EditableReservationSeries['weekdays'][number])
+    )
+}
+
+function dateInputFromIso(value: string | undefined | null): string {
+  if (!value) return ''
+  const date = new Date(value)
+  if (isNaN(date.getTime())) return ''
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -219,8 +258,12 @@ export function CalendarScreen() {
   const [editingReservation, setEditingReservation] = useState<
     { start: Date; end: Date; reservation: EditableReservation } | null
   >(null)
+  const [editingSeries, setEditingSeries] = useState<
+    { start: Date; end: Date; series: EditableReservationSeries } | null
+  >(null)
   const [deleteConfirmMode, setDeleteConfirmMode] = useState<DeleteConfirmMode | null>(null)
   const [deletingReservation, setDeletingReservation] = useState(false)
+  const [loadingSeriesEdit, setLoadingSeriesEdit] = useState(false)
   const [reservationActionError, setReservationActionError] = useState('')
   const [activeLogoUrl, setActiveLogoUrl] = useState(theme.logoUrl || sfsuDefaultLogoUrl)
   const [logoLoadFailed, setLogoLoadFailed] = useState(false)
@@ -506,6 +549,7 @@ export function CalendarScreen() {
     setSelectedEvent(null)
     setDeleteConfirmMode(null)
     setDeletingReservation(false)
+    setLoadingSeriesEdit(false)
     setReservationActionError('')
   }, [])
 
@@ -516,6 +560,7 @@ export function CalendarScreen() {
   const handleEventClick = useCallback((arg: EventClickArg) => {
     setDeleteConfirmMode(null)
     setDeletingReservation(false)
+    setLoadingSeriesEdit(false)
     setReservationActionError('')
 
     if (arg.event.extendedProps.type === 'blackout') {
@@ -568,6 +613,131 @@ export function CalendarScreen() {
     })
     closeReservationInfo()
   }, [closeReservationInfo, currentUser?.appUserId, currentUser?.isAppAdmin, selectedEvent])
+
+  const handleEditSelectedSeries = useCallback(async () => {
+    if (!selectedEvent || selectedEvent.extendedProps?.type !== 'occurrence') {
+      return
+    }
+
+    const seriesId = reservationSeriesIdFor(selectedEvent)
+    if (!seriesId) {
+      setReservationActionError('This reservation is not part of a recurring series.')
+      return
+    }
+
+    const ownerId = reservationOwnerIdFor(selectedEvent)
+    if (!currentUser?.isAppAdmin && ownerId !== currentUser?.appUserId) {
+      setReservationActionError('Only the reservation owner or an app admin can edit this series.')
+      return
+    }
+
+    setLoadingSeriesEdit(true)
+    setReservationActionError('')
+
+    try {
+      const [seriesResult, occurrenceResult] = await Promise.all([
+        Sfsures_reservationseriesesService.get(seriesId, {
+          select: [
+            'sfsures_reservationseriesid',
+            'sfsures_comments',
+            'sfsures_frequency',
+            'sfsures_interval',
+            'sfsures_daysofweek',
+            'sfsures_endmode',
+            'sfsures_occurrencecount',
+            'sfsures_untildate',
+            '_sfsures_resource_value',
+            '_sfsures_bookingowner_value',
+          ],
+        }),
+        Sfsures_reservationoccurrencesService.getAll({
+          select: ['sfsures_reservationoccurrenceid', 'sfsures_start', 'sfsures_end'],
+          filter:
+            `_sfsures_series_value eq ${seriesId}` +
+            ` and sfsures_recordstatus eq ${RECORD_STATUS_ACTIVE}`,
+          orderBy: ['sfsures_start asc'],
+          top: 500,
+        }),
+      ])
+
+      const series = seriesResult.data
+      if (!series) {
+        setReservationActionError('This recurring series could not be loaded for editing.')
+        return
+      }
+
+      const frequency = seriesFrequencyFromDataverse(series.sfsures_frequency)
+      if (!frequency) {
+        setReservationActionError('This recurring series has an unsupported repeat pattern.')
+        return
+      }
+
+      const activeOccurrences = (occurrenceResult.data ?? []).filter(
+        (occurrence) =>
+          occurrence.sfsures_reservationoccurrenceid &&
+          occurrence.sfsures_start &&
+          occurrence.sfsures_end
+      )
+
+      if (activeOccurrences.length === 0) {
+        setReservationActionError('This recurring series has no active occurrences to edit.')
+        return
+      }
+
+      const firstOccurrence = activeOccurrences[0]
+      const modalStart = new Date(firstOccurrence.sfsures_start as string)
+      const modalEnd = new Date(firstOccurrence.sfsures_end as string)
+
+      if (isNaN(modalStart.getTime()) || isNaN(modalEnd.getTime())) {
+        setReservationActionError('This recurring series has an invalid first occurrence.')
+        return
+      }
+
+      const resourceId = series._sfsures_resource_value ?? reservationResourceIdFor(selectedEvent)
+      const bookingOwnerId = series._sfsures_bookingowner_value ?? ownerId
+
+      if (!resourceId || !bookingOwnerId) {
+        setReservationActionError('This recurring series is missing resource or owner details.')
+        return
+      }
+
+      const activeOccurrenceIds = activeOccurrences
+        .map((occurrence) => occurrence.sfsures_reservationoccurrenceid)
+        .filter((id): id is string => typeof id === 'string' && id.length > 0)
+
+      setEditingSeries({
+        start: modalStart,
+        end: modalEnd,
+        series: {
+          id: seriesId,
+          resourceId,
+          bookingOwnerId,
+          comments: series.sfsures_comments?.trim() ?? reservationCommentsFor(selectedEvent),
+          frequency,
+          interval: Math.max(1, series.sfsures_interval ?? 1),
+          weekdays: seriesWeekdaysFromText(series.sfsures_daysofweek),
+          endMode: seriesEndModeFromDataverse(series.sfsures_endmode),
+          occurrenceCount: Math.max(2, series.sfsures_occurrencecount ?? activeOccurrenceIds.length),
+          untilDate: dateInputFromIso(series.sfsures_untildate),
+          activeOccurrenceIds,
+        },
+      })
+      closeReservationInfo()
+    } catch (err) {
+      console.error('Reservation series edit load failed:', err)
+      const detail = err instanceof Error ? err.message : 'Dataverse rejected the request.'
+      setReservationActionError(
+        `Edit series failed: ${detail} Only the reservation owner or an admin can edit this series.`
+      )
+    } finally {
+      setLoadingSeriesEdit(false)
+    }
+  }, [
+    closeReservationInfo,
+    currentUser?.appUserId,
+    currentUser?.isAppAdmin,
+    selectedEvent,
+  ])
 
   const handleDeleteSelectedReservation = useCallback(async () => {
     if (!selectedEvent || selectedEvent.extendedProps?.type !== 'occurrence') {
@@ -1000,9 +1170,19 @@ export function CalendarScreen() {
                         <button
                           className={styles.secondaryAction}
                           onClick={handleEditSelectedReservation}
+                          disabled={loadingSeriesEdit}
                         >
                           Edit reservation
                         </button>
+                        {selectedEventSeriesId && (
+                          <button
+                            className={styles.secondaryAction}
+                            onClick={handleEditSelectedSeries}
+                            disabled={loadingSeriesEdit}
+                          >
+                            {loadingSeriesEdit ? 'Opening series...' : 'Edit series'}
+                          </button>
+                        )}
                         <button
                           className={styles.dangerGhostAction}
                           onClick={() => {
@@ -1051,6 +1231,18 @@ export function CalendarScreen() {
           end={editingReservation.end}
           initialReservation={editingReservation.reservation}
           onClose={() => setEditingReservation(null)}
+          onBooked={() => {
+            refreshCalendar()
+          }}
+        />
+      )}
+
+      {editingSeries && (
+        <BookingModal
+          start={editingSeries.start}
+          end={editingSeries.end}
+          initialSeries={editingSeries.series}
+          onClose={() => setEditingSeries(null)}
           onBooked={() => {
             refreshCalendar()
           }}

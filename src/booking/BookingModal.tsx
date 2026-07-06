@@ -53,6 +53,8 @@ interface BookingModalProps {
   end: Date
   /** Existing occurrence details when editing from Reservation Info */
   initialReservation?: EditableReservation
+  /** Existing series details when editing an entire recurring series */
+  initialSeries?: EditableReservationSeries
   /** Close the modal without reserving */
   onClose: () => void
   /** Called after a successful create/update — CalendarScreen uses this to refresh */
@@ -63,6 +65,24 @@ export interface EditableReservation {
   id: string
   resourceId: string
   comments: string
+}
+
+export type EditableSeriesFrequency = 'daily' | 'weekly' | 'monthly'
+export type EditableSeriesEndMode = 'count' | 'until'
+export type EditableSeriesWeekday = 'Sun' | 'Mon' | 'Tue' | 'Wed' | 'Thu' | 'Fri' | 'Sat'
+
+export interface EditableReservationSeries {
+  id: string
+  resourceId: string
+  bookingOwnerId: string
+  comments: string
+  frequency: EditableSeriesFrequency
+  interval: number
+  weekdays: EditableSeriesWeekday[]
+  endMode: EditableSeriesEndMode
+  occurrenceCount: number
+  untilDate: string
+  activeOccurrenceIds: string[]
 }
 
 interface ResourceOption {
@@ -82,13 +102,13 @@ interface ConflictInfo {
 }
 
 type ModalMode = 'form' | 'success'
-type SaveMode = 'create' | 'edit'
+type SaveMode = 'create' | 'edit' | 'editSeries'
 type SuccessKind = 'created' | 'updated'
 type SuccessScope = 'single' | 'series'
-type RecurrenceFrequency = 'none' | 'daily' | 'weekly' | 'monthly'
+type RecurrenceFrequency = 'none' | EditableSeriesFrequency
 type SeriesFrequency = Exclude<RecurrenceFrequency, 'none'>
-type RecurrenceEndMode = 'count' | 'until'
-type WeekdayKey = 'Sun' | 'Mon' | 'Tue' | 'Wed' | 'Thu' | 'Fri' | 'Sat'
+type RecurrenceEndMode = EditableSeriesEndMode
+type WeekdayKey = EditableSeriesWeekday
 
 interface RequestedOccurrence {
   start: Date
@@ -104,6 +124,7 @@ interface RecurrenceBuildResult {
 const MS_PER_WEEK = 7 * 24 * 60 * 60 * 1000
 const RESERVATION_COMMENTS_FIELD = 'sfsures_comments'
 const RECORD_STATUS_ACTIVE = 997330000
+const RECORD_STATUS_CANCELLED = 997330001
 const SERIES_FREQUENCY = {
   daily: 997330000,
   weekly: 997330001,
@@ -469,7 +490,7 @@ function formatConflictPrefix(conflict: ConflictInfo): string {
 // Component
 // ---------------------------------------------------------------------------
 
-export function BookingModal({ start, end, initialReservation, onClose, onBooked }: BookingModalProps) {
+export function BookingModal({ start, end, initialReservation, initialSeries, onClose, onBooked }: BookingModalProps) {
   const { theme, reservationLimits } = useTheme()
   const currentUser = useCurrentUser()
 
@@ -483,20 +504,32 @@ export function BookingModal({ start, end, initialReservation, onClose, onBooked
   const [resourcesLoading, setResourcesLoading] = useState(true)
 
   // ---- Form state ----
-  const [selectedResourceId, setSelectedResourceId] = useState(initialReservation?.resourceId ?? '')
+  const [selectedResourceId, setSelectedResourceId] = useState(
+    initialSeries?.resourceId ?? initialReservation?.resourceId ?? ''
+  )
   const [startStr, setStartStr] = useState(toDatetimeLocal(start))
   const [endStr, setEndStr] = useState(toDatetimeLocal(end))
-  const [comments, setComments] = useState(initialReservation?.comments ?? '')
-  const [recurrenceFrequency, setRecurrenceFrequency] = useState<RecurrenceFrequency>('none')
-  const [recurrenceInterval, setRecurrenceInterval] = useState('1')
-  const [weeklyDays, setWeeklyDays] = useState<WeekdayKey[]>([weekdayKeyForDate(start)])
-  const [recurrenceEndMode, setRecurrenceEndMode] = useState<RecurrenceEndMode>('count')
-  const [occurrenceCount, setOccurrenceCount] = useState(String(DEFAULT_RECURRENCE_COUNT))
-  const [untilDate, setUntilDate] = useState(() => defaultUntilDateFor(start))
+  const [comments, setComments] = useState(initialSeries?.comments ?? initialReservation?.comments ?? '')
+  const [recurrenceFrequency, setRecurrenceFrequency] = useState<RecurrenceFrequency>(
+    initialSeries?.frequency ?? 'none'
+  )
+  const [recurrenceInterval, setRecurrenceInterval] = useState(String(initialSeries?.interval ?? 1))
+  const [weeklyDays, setWeeklyDays] = useState<WeekdayKey[]>(
+    initialSeries?.weekdays.length ? initialSeries.weekdays : [weekdayKeyForDate(start)]
+  )
+  const [recurrenceEndMode, setRecurrenceEndMode] = useState<RecurrenceEndMode>(
+    initialSeries?.endMode ?? 'count'
+  )
+  const [occurrenceCount, setOccurrenceCount] = useState(
+    String(initialSeries?.occurrenceCount ?? DEFAULT_RECURRENCE_COUNT)
+  )
+  const [untilDate, setUntilDate] = useState(() => initialSeries?.untilDate || defaultUntilDateFor(start))
 
   // ---- Modal flow state ----
   const [mode, setMode] = useState<ModalMode>('form')
-  const [saveMode, setSaveMode] = useState<SaveMode>(initialReservation ? 'edit' : 'create')
+  const [saveMode, setSaveMode] = useState<SaveMode>(
+    initialSeries ? 'editSeries' : initialReservation ? 'edit' : 'create'
+  )
   const [successKind, setSuccessKind] = useState<SuccessKind>('created')
   const [successScope, setSuccessScope] = useState<SuccessScope>('single')
   const [successOccurrenceCount, setSuccessOccurrenceCount] = useState(1)
@@ -510,16 +543,25 @@ export function BookingModal({ start, end, initialReservation, onClose, onBooked
 
   const selectedResourceName =
     resources.find((resource) => resource.id === selectedResourceId)?.name ?? 'Selected resource'
-  const successTitle = successKind === 'updated' ? 'Reservation Updated' : 'Reservation Confirmed'
+  const successTitle =
+    successKind === 'updated'
+      ? successScope === 'series'
+        ? 'Series Updated'
+        : 'Reservation Updated'
+      : 'Reservation Confirmed'
   const successMessage =
     successKind === 'updated'
-      ? 'Your reservation changes have been saved.'
+      ? successScope === 'series'
+        ? 'Your recurring reservation changes have been saved.'
+        : 'Your reservation changes have been saved.'
       : successScope === 'series'
         ? 'Your recurring reservation has been saved.'
         : 'Your reservation has been saved.'
   const titleId = mode === 'success' ? 'booking-success-title' : 'booking-modal-title'
   const descriptionId = mode === 'success' ? 'booking-success-description' : undefined
+  const isSeriesEdit = saveMode === 'editSeries'
   const isRecurringCreate = saveMode === 'create' && recurrenceFrequency !== 'none'
+  const isSeriesSave = isRecurringCreate || isSeriesEdit
 
   useEffect(() => {
     if (mode !== 'success') return
@@ -548,7 +590,7 @@ export function BookingModal({ start, end, initialReservation, onClose, onBooked
         setResources(opts)
 
         // Auto-select the first resource if only one exists (common in early demo data).
-        if (opts.length === 1 && !initialReservation?.resourceId) {
+        if (opts.length === 1 && !initialReservation?.resourceId && !initialSeries?.resourceId) {
           setSelectedResourceId(opts[0].id)
         }
       } catch (err) {
@@ -560,7 +602,7 @@ export function BookingModal({ start, end, initialReservation, onClose, onBooked
     }
 
     load()
-  }, [initialReservation?.resourceId])
+  }, [initialReservation?.resourceId, initialSeries?.resourceId])
 
   const handleRecurrenceFrequencyChange = useCallback((frequency: RecurrenceFrequency) => {
     setRecurrenceFrequency(frequency)
@@ -635,13 +677,14 @@ export function BookingModal({ start, end, initialReservation, onClose, onBooked
       return
     }
 
-    const isEditing = saveMode === 'edit'
+    const isOccurrenceEdit = saveMode === 'edit'
+    const isSeriesEditMode = saveMode === 'editSeries'
     const interval = parseWholeNumber(recurrenceInterval)
     const count = parseWholeNumber(occurrenceCount)
     const recurrenceBuild = buildRequestedOccurrences({
       startDate,
       endDate,
-      frequency: isEditing ? 'none' : recurrenceFrequency,
+      frequency: isOccurrenceEdit ? 'none' : recurrenceFrequency,
       interval: interval ?? 0,
       weekdays: weeklyDays,
       endMode: recurrenceEndMode,
@@ -659,13 +702,19 @@ export function BookingModal({ start, end, initialReservation, onClose, onBooked
     const requestedOccurrences = recurrenceBuild.occurrences
     const firstOccurrence = requestedOccurrences[0]
     const lastOccurrence = requestedOccurrences[requestedOccurrences.length - 1]
-    const isRecurring = !isEditing && requestedOccurrences.length > 1
+    const isSeriesRequest = !isOccurrenceEdit && requestedOccurrences.length > 1
 
     setSaving(true)
 
     try {
-      if (isEditing && !bookingId) {
+      if (isOccurrenceEdit && !bookingId) {
         setError('Could not reopen this reservation for editing. Close the dialog and try again.')
+        setSaving(false)
+        return
+      }
+
+      if (isSeriesEditMode && !initialSeries) {
+        setError('Could not reopen this series for editing. Close the dialog and try again.')
         setSaving(false)
         return
       }
@@ -675,8 +724,12 @@ export function BookingModal({ start, end, initialReservation, onClose, onBooked
       const startIso = toDataverseIso(firstOccurrence.start)
       const endIso = toDataverseIso(lastOccurrence.end)
       const excludeCurrentBooking =
-        !isRecurring && isEditing && bookingId
+        !isSeriesRequest && isOccurrenceEdit && bookingId
           ? ` and sfsures_reservationoccurrenceid ne ${bookingId}`
+          : ''
+      const excludeCurrentSeries =
+        isSeriesEditMode && initialSeries
+          ? ` and _sfsures_series_value ne ${initialSeries.id}`
           : ''
 
       const [occResult, blackoutResult] = await Promise.all([
@@ -692,7 +745,8 @@ export function BookingModal({ start, end, initialReservation, onClose, onBooked
             ` and sfsures_recordstatus eq 997330000` +
             ` and sfsures_start lt ${endIso}` +
             ` and sfsures_end gt ${startIso}` +
-            excludeCurrentBooking,
+            excludeCurrentBooking +
+            excludeCurrentSeries,
           orderBy: ['sfsures_start asc'],
           top: 500,
         }),
@@ -755,7 +809,7 @@ export function BookingModal({ start, end, initialReservation, onClose, onBooked
       if (found.length > 0) {
         setConflicts(found)
         setError(
-          isRecurring
+          isSeriesRequest
             ? found.length === 1
               ? 'One occurrence conflicts with an existing reservation or blackout window.'
               : `${found.length} occurrences conflict with existing reservations or blackout windows.`
@@ -774,7 +828,8 @@ export function BookingModal({ start, end, initialReservation, onClose, onBooked
       const makeOccurrenceFields = (
         occurrence: RequestedOccurrence,
         seriesId?: string,
-        includeBookingOwner = true
+        includeBookingOwner = true,
+        bookingOwnerId = currentUser.appUserId
       ) => ({
         sfsures_name: `${selectedResourceName} ${formatShortDate(occurrence.start)}`,
         sfsures_start: toDataverseIso(occurrence.start),
@@ -783,14 +838,36 @@ export function BookingModal({ start, end, initialReservation, onClose, onBooked
         [RESERVATION_COMMENTS_FIELD]: trimmedComments || null,
         'sfsures_Resource@odata.bind': `/sfsures_resources(${selectedResourceId})`,
         ...(includeBookingOwner
-          ? { 'sfsures_BookingOwner@odata.bind': `/sfsures_appusers(${currentUser.appUserId})` }
+          ? { 'sfsures_BookingOwner@odata.bind': `/sfsures_appusers(${bookingOwnerId})` }
           : {}),
         ...(seriesId
           ? { 'sfsures_Series@odata.bind': `/sfsures_reservationserieses(${seriesId})` }
           : {}),
       })
 
-      if (isEditing && bookingId) {
+      const makeSeriesFields = (includeBookingOwner = true) => ({
+        sfsures_name: `${selectedResourceName} recurring reservation`,
+        sfsures_comments: trimmedComments || null,
+        sfsures_frequency: SERIES_FREQUENCY[recurrenceFrequency as SeriesFrequency],
+        sfsures_interval: interval ?? 1,
+        sfsures_daysofweek:
+          recurrenceFrequency === 'weekly' ? sortedWeekdays(weeklyDays).join(',') : null,
+        sfsures_endmode: SERIES_END_MODE[recurrenceEndMode],
+        sfsures_occurrencecount:
+          recurrenceEndMode === 'count' ? requestedOccurrences.length : null,
+        sfsures_rangestart: toDataverseIso(firstOccurrence.start),
+        sfsures_untildate:
+          recurrenceEndMode === 'until' && endOfDateInput(untilDate)
+            ? toDataverseIso(endOfDateInput(untilDate) as Date)
+            : null,
+        sfsures_recordstatus: RECORD_STATUS_ACTIVE,
+        'sfsures_Resource@odata.bind': `/sfsures_resources(${selectedResourceId})`,
+        ...(includeBookingOwner
+          ? { 'sfsures_BookingOwner@odata.bind': `/sfsures_appusers(${currentUser.appUserId})` }
+          : {}),
+      })
+
+      if (isOccurrenceEdit && bookingId) {
         await Sfsures_reservationoccurrencesService.update(
           bookingId,
           makeOccurrenceFields(firstOccurrence, undefined, false) as unknown as Parameters<typeof Sfsures_reservationoccurrencesService.update>[1]
@@ -799,30 +876,67 @@ export function BookingModal({ start, end, initialReservation, onClose, onBooked
         setSuccessOccurrenceCount(1)
         setSuccessRecurrenceSummary('')
         setSuccessKind('updated')
-      } else if (isRecurring) {
+      } else if (isSeriesEditMode && initialSeries) {
+        const createdOccurrenceIds: string[] = []
+
+        try {
+          for (const occurrence of requestedOccurrences) {
+            const occurrenceResult = await Sfsures_reservationoccurrencesService.create(
+              makeOccurrenceFields(
+                occurrence,
+                initialSeries.id,
+                true,
+                initialSeries.bookingOwnerId
+              ) as unknown as Parameters<typeof Sfsures_reservationoccurrencesService.create>[0]
+            )
+            const occurrenceId = occurrenceResult.data?.sfsures_reservationoccurrenceid
+            if (occurrenceId) {
+              createdOccurrenceIds.push(occurrenceId)
+            }
+          }
+
+          await Sfsures_reservationseriesesService.update(
+            initialSeries.id,
+            makeSeriesFields(false) as unknown as Parameters<typeof Sfsures_reservationseriesesService.update>[1]
+          )
+
+          await Promise.all(
+            initialSeries.activeOccurrenceIds.map((occurrenceId) =>
+              Sfsures_reservationoccurrencesService.update(
+                occurrenceId,
+                {
+                  sfsures_recordstatus: RECORD_STATUS_CANCELLED,
+                } as unknown as Parameters<typeof Sfsures_reservationoccurrencesService.update>[1]
+              )
+            )
+          )
+        } catch (writeErr) {
+          if (createdOccurrenceIds.length > 0) {
+            const cleanupResults = await Promise.allSettled(
+              createdOccurrenceIds.map((id) => Sfsures_reservationoccurrencesService.delete(id))
+            )
+            const cleanupFailed = cleanupResults.some((result) => result.status === 'rejected')
+            if (cleanupFailed) {
+              console.warn('Series edit cleanup failed after a partial update.', cleanupResults)
+            }
+          }
+
+          throw writeErr
+        }
+
+        setBookingId(null)
+        setSuccessScope('series')
+        setSuccessOccurrenceCount(requestedOccurrences.length)
+        setSuccessRecurrenceSummary(recurrenceBuild.summary)
+        setSuccessKind('updated')
+      } else if (isSeriesRequest) {
         let seriesId: string | null = null
         const createdOccurrenceIds: string[] = []
 
         try {
-          const seriesResult = await Sfsures_reservationseriesesService.create({
-            sfsures_name: `${selectedResourceName} recurring reservation`,
-            sfsures_comments: trimmedComments || null,
-            sfsures_frequency: SERIES_FREQUENCY[recurrenceFrequency as SeriesFrequency],
-            sfsures_interval: interval ?? 1,
-            sfsures_daysofweek:
-              recurrenceFrequency === 'weekly' ? sortedWeekdays(weeklyDays).join(',') : null,
-            sfsures_endmode: SERIES_END_MODE[recurrenceEndMode],
-            sfsures_occurrencecount:
-              recurrenceEndMode === 'count' ? requestedOccurrences.length : null,
-            sfsures_rangestart: toDataverseIso(firstOccurrence.start),
-            sfsures_untildate:
-              recurrenceEndMode === 'until' && endOfDateInput(untilDate)
-                ? toDataverseIso(endOfDateInput(untilDate) as Date)
-                : null,
-            sfsures_recordstatus: RECORD_STATUS_ACTIVE,
-            'sfsures_Resource@odata.bind': `/sfsures_resources(${selectedResourceId})`,
-            'sfsures_BookingOwner@odata.bind': `/sfsures_appusers(${currentUser.appUserId})`,
-          } as unknown as Parameters<typeof Sfsures_reservationseriesesService.create>[0])
+          const seriesResult = await Sfsures_reservationseriesesService.create(
+            makeSeriesFields() as unknown as Parameters<typeof Sfsures_reservationseriesesService.create>[0]
+          )
 
           seriesId = seriesResult.data?.sfsures_reservationseriesid ?? null
           if (!seriesId) {
@@ -882,7 +996,9 @@ export function BookingModal({ start, end, initialReservation, onClose, onBooked
       console.error('Reservation failed:', err)
       const detail = err instanceof Error ? err.message : 'An unexpected error occurred.'
       setError(
-        saveMode === 'edit'
+        saveMode === 'editSeries'
+          ? `Series update failed: ${detail} Only the reservation owner or an admin can edit this series.`
+          : saveMode === 'edit'
           ? `Reservation update failed: ${detail} Only the reservation owner or an admin can edit this reservation.`
           : `Reservation failed: ${detail}`
       )
@@ -905,6 +1021,7 @@ export function BookingModal({ start, end, initialReservation, onClose, onBooked
     currentUser,
     saveMode,
     bookingId,
+    initialSeries,
     selectedResourceName,
     resetRecurrenceFields,
     onBooked,
@@ -921,13 +1038,35 @@ export function BookingModal({ start, end, initialReservation, onClose, onBooked
 
   // ---- Render ----
   const canSubmit = !!selectedResourceId && !!startStr && !!endStr && !saving
-  const submitLabel = saveMode === 'edit' ? 'Save Changes' : isRecurringCreate ? 'Reserve Series' : 'Reserve'
-  const savingLabel = isRecurringCreate ? 'Reserving series...' : 'Reserving...'
+  const submitLabel = isSeriesEdit
+    ? 'Save Series'
+    : saveMode === 'edit'
+      ? 'Save Changes'
+      : isRecurringCreate
+        ? 'Reserve Series'
+        : 'Reserve'
+  const savingLabel = isSeriesEdit
+    ? 'Saving series...'
+    : isRecurringCreate
+      ? 'Reserving series...'
+      : 'Reserving...'
   const parsedStartForDateInput = fromDatetimeLocal(startStr)
   const minUntilDate = isNaN(parsedStartForDateInput.getTime())
     ? toDateInput(start)
     : toDateInput(parsedStartForDateInput)
   const recurrenceIntervalNumber = parseWholeNumber(recurrenceInterval) ?? 1
+  const recurrenceFrequencyOptions: Array<[RecurrenceFrequency, string]> = isSeriesEdit
+    ? [
+        ['daily', 'Daily'],
+        ['weekly', 'Weekly'],
+        ['monthly', 'Monthly'],
+      ]
+    : [
+        ['none', 'None'],
+        ['daily', 'Daily'],
+        ['weekly', 'Weekly'],
+        ['monthly', 'Monthly'],
+      ]
 
   return (
     <div className={styles.backdrop} onClick={onClose}>
@@ -958,6 +1097,8 @@ export function BookingModal({ start, end, initialReservation, onClose, onBooked
             <span>
               {mode === 'success'
                 ? successTitle
+                : isSeriesEdit
+                  ? 'Edit Series'
                 : saveMode === 'edit'
                   ? 'Edit Reservation'
                   : 'New Reservation'}
@@ -1001,7 +1142,8 @@ export function BookingModal({ start, end, initialReservation, onClose, onBooked
                 {successScope === 'series' && (
                   <div className={styles.summarySeriesBlock}>
                     <p className={styles.summaryLabel}>
-                      {successOccurrenceCount} reservations created
+                      {successOccurrenceCount} reservations{' '}
+                      {successKind === 'updated' ? 'saved' : 'created'}
                     </p>
                     <p className={styles.summarySeries}>{successRecurrenceSummary}</p>
                   </div>
@@ -1092,19 +1234,14 @@ export function BookingModal({ start, end, initialReservation, onClose, onBooked
             </p>
 
             {/* Recurrence */}
-            {saveMode === 'create' && (
+            {(saveMode === 'create' || isSeriesEdit) && (
               <section className={styles.recurrenceSection} aria-labelledby="booking-repeat-label">
                 <div className={styles.field}>
                   <p id="booking-repeat-label" className={styles.label}>
                     Repeat
                   </p>
                   <div className={styles.segmentedControl} role="group" aria-label="Repeat pattern">
-                    {[
-                      ['none', 'None'],
-                      ['daily', 'Daily'],
-                      ['weekly', 'Weekly'],
-                      ['monthly', 'Monthly'],
-                    ].map(([value, label]) => (
+                    {recurrenceFrequencyOptions.map(([value, label]) => (
                       <button
                         key={value}
                         type="button"
@@ -1122,7 +1259,7 @@ export function BookingModal({ start, end, initialReservation, onClose, onBooked
                   </div>
                 </div>
 
-                {isRecurringCreate && (
+                {isSeriesSave && (
                   <div className={styles.recurrenceDetails}>
                     <div className={styles.inlineField}>
                       <label className={styles.label} htmlFor="booking-repeat-interval">
