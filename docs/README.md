@@ -2,7 +2,7 @@
 
 This folder is the local reference library for the SFSU Resource Reservation System, a Power Apps Code App built with React, TypeScript, Vite, FullCalendar, Office365Users, and Microsoft Dataverse. The app is intended to replace LabArchives Scheduler for SFSU resource booking, with a Dataverse-backed model for resources, reservations, blackout windows, group-scoped access, theming, audit logging, and per-department managed-solution replication.
 
-Last indexed: 2026-07-03.
+Last indexed: 2026-07-07.
 
 ## Quick Project Shape
 
@@ -21,9 +21,10 @@ Last indexed: 2026-07-03.
 5. [Booking Modal and Layout Fix Addendum](sfsu_booking_modal_and_layout_fix_addendum.md) for the current end-to-end booking MVP and Dataverse lookup conventions.
 6. [UI Branding and Booking Confirmation Polish Addendum](sfsu_ui_branding_and_booking_confirmation_addendum.md) for the current modal confirmation behavior, bundled SFSU logo/font defaults, and calendar visual polish.
 7. [Reservation Details, Comments, and Limits Addendum](sfsu_ui_reservation_details_comments_and_limits_addendum.md) for the current header/profile polish, reservation detail modal, comments, and App Settings-backed reservation limits.
-8. [Accessibility Tier 1 Addendum](sfsu_accessibility_tier1_addendum.md) for completed accessibility fixes and queued DPRC/WCAG work.
-9. [Environment and Demo Planning Addendum](sfsu_environment_and_demo_planning_addendum.md) for sandbox/production environment strategy and demo plan.
-10. Older planning and exploration docs are useful for rationale, but treat newer addenda above as current when they conflict.
+8. [Recurrence, App Permissions, and Calendar Actions Addendum](sfsu_recurrence_permissions_calendar_addendum.md) for current recurring reservation workflows, app-level group permissions, edit/delete reservation actions, and calendar-layout decisions.
+9. [Accessibility Tier 1 Addendum](sfsu_accessibility_tier1_addendum.md) for completed accessibility fixes and queued DPRC/WCAG work.
+10. [Environment and Demo Planning Addendum](sfsu_environment_and_demo_planning_addendum.md) for sandbox/production environment strategy and demo plan.
+11. Older planning and exploration docs are useful for rationale, but treat newer addenda above as current when they conflict.
 
 ## Session Workflow
 
@@ -49,6 +50,7 @@ Last indexed: 2026-07-03.
 | [sfsu_reservation_system_chat_summary.md](sfsu_reservation_system_chat_summary.md) | Early full-chat summary of product scope, permissions, SF State ID identity, no-approval workflow, and vibe-coding expectations. |
 | [sfsu_reservation_system_progress.md](sfsu_reservation_system_progress.md) | Early planning runbook covering metadata-driven resources, materialized recurrence occurrences, FullCalendar direction, and delegation risk. |
 | [sfsu_reservation_system_summary.md](sfsu_reservation_system_summary.md) | Early structured product summary for the intended reservation system and AI prompt context. |
+| [sfsu_recurrence_permissions_calendar_addendum.md](sfsu_recurrence_permissions_calendar_addendum.md) | Documents recurring reservation create/edit/delete workflows, seeded app-permission groups, reservation-info actions, and calendar layout decisions. |
 | [sfsu_schema_build_complete_addendum.md](sfsu_schema_build_complete_addendum.md) | Historical schema-build completion note; still useful for rationale, but some ownership/naming facts were superseded by the security roles/teams addendum. |
 | [sfsu_security_roles_and_teams_addendum.md](sfsu_security_roles_and_teams_addendum.md) | Current source for security roles, Owner teams, reservation-table ownership, privilege inheritance, and enforcement-layer open tests. |
 | [sfsu_threat_model_addendum.md](sfsu_threat_model_addendum.md) | Current source for known vulnerabilities, API-bypass risks, metadata discoverability, audit-log limitations, and detective controls. |
@@ -85,6 +87,7 @@ Schema rules to preserve:
 - Resource attributes use five typed value columns, not JSON.
 - Group resource-type access and group resource access are two separate explicit junction tables.
 - App User is keyed by write-once SF State ID.
+- Group includes stable `Group Key` and `Is System Group` fields. App logic keys off system group keys such as `APP_ADMINS` and `REPORT_VIEWERS`, not mutable group display names.
 - Audit Log is append-only, denormalized on purpose, and should not use live lookup relationships for historical context.
 
 For generated TypeScript names, use [sfsu_ui_build_kickoff_addendum.md](sfsu_ui_build_kickoff_addendum.md). The CLI pluralizes some names unexpectedly, including `appsettingses` and `reservationserieses`.
@@ -97,6 +100,7 @@ Current architecture:
 - Dataverse is the backend, with generated service/model files under `src/generated/`.
 - Office365Users supplies the signed-in user's UPN; the app extracts the first 9 characters as SF State ID.
 - FullCalendar renders reservation occurrences and blackout windows.
+- App-level group membership drives UI visibility for app-admin and report-view capabilities; Dataverse roles still define the backend access boundary.
 - Per-department instances are preferred over one campus-wide app; managed-solution export/import is the replication path.
 - Environment-level Dataverse security roles are the real authorization boundary; in-app role checks are presentation logic only.
 
@@ -118,6 +122,7 @@ Current security model:
 - Viewer can read calendar/catalog data but cannot create reservations.
 - Booker can create reservations and read all reservations for calendar/conflict checks, but should only edit/delete own reservation rows through User-level privileges.
 - Admin has broad management rights, but Audit Log write/delete remain blocked even for Admin.
+- In-app app-admin/report-view privileges are currently represented by seeded Group rows keyed as `APP_ADMINS` and `REPORT_VIEWERS`.
 - App sharing and Dataverse role/team membership must stay aligned; sharing wider than the teams may expand the API-accessible population.
 
 Known risks and accepted residuals:
@@ -134,19 +139,23 @@ Current MVP, based on the docs and source tree:
 
 - React/Vite Code App scaffold exists and is bound to the Power Apps environment in `power.config.json`.
 - All 14 Dataverse service/model files are generated.
-- `AccessGate` validates the signed-in user through Office365Users and App User rows before rendering content.
-- `CalendarScreen` loads occurrences and blackout windows with delegation-safe query shapes and renders them with FullCalendar, including centered header branding, signed-in user profile photo, yellow date headers, and a reservation detail dialog with owner profile and comments.
-- `BookingModal` creates and updates single, non-recurring reservation occurrences against real Dataverse data, including optional Comments, then shows a centered confirmation state with `Edit Reservation` and focused `OK`.
-- Conflict detection against active occurrences and blackout windows is implemented for single bookings.
+- `AccessGate` validates the signed-in user through Office365Users and App User rows before rendering content, then loads active app group memberships for UI permission flags.
+- `CalendarScreen` loads occurrences and blackout windows with delegation-safe query shapes and renders them with FullCalendar, including centered header branding, signed-in user profile photo, yellow date headers, 24-hour Week/Day views, and a reservation detail dialog with owner profile, comments, and edit/delete actions.
+- `BookingModal` creates and updates single reservations and recurring reservation series against real Dataverse data, including optional Comments, then shows a centered confirmation state with `Edit Reservation` and focused `OK`.
+- Recurring reservation create/edit supports daily, weekly, and monthly patterns with count/until end modes and generated occurrence rows.
+- Conflict detection against active occurrences and blackout windows is implemented for single bookings and recurring occurrence generation.
 - Theme values load through `ThemeContext` from `sfsures_appsettings`, with portable bundled SFSU logo and Source Sans 3 defaults as fallback.
 - Reservation limits are loaded from `sfsures_appsettings` with code hard caps: max 50 generated occurrences and max 18 weeks per reservation/series span. App Admins may configure more restrictive values only.
 - Tier 1 accessibility work is partly implemented: focus trap helper, dialog semantics, visible focus ring, keyboard booking path, and live regions.
 
 Future production work:
 
-- Recurring reservation UI and atomic all-or-nothing occurrence creation.
+- Resource Type dropdown and group-scoped calendar filtering.
 - Resource group-scoping in the booking picker and related UI.
 - Admin screens for resource catalog, users, groups, blackout windows, and app settings/theme picker. The App Settings screen must show the hard maximum beside each configurable reservation limit.
+- Custom app-owned calendar toolbar so the date range can stay truly centered while Resource Type, view controls, and other controls grow around it.
+- Recurring reservation "cancel future events" workflow.
+- Transactional/server-side hardening for series create/edit/delete if the MVP's sequential Dataverse writes prove too fragile.
 - Lazy-load future admin/settings/report screens once navigation arrives so the calendar bundle stays lean; the current Vite large chunk warning is a baseline metric, not a blocker.
 - Reports/export screens and Excel/SharePoint outputs.
 - Full DPRC/WCAG verification, including screen-reader testing and Tier 2/Tier 3 accessibility work.
@@ -162,6 +171,10 @@ Future production work:
 - Several older docs mention Vibe or Claude browser-extension workflows that have since been retired; keep them historical unless explicitly reviving that path.
 - Decide later whether a repo-local `AGENTS.md` or `CLAUDE.md` is still needed; for now, personal skills plus this README cover startup and closeout.
 - Native scrollbar arrow buttons can still appear inside the calendar host; earlier CSS attempts were ineffective and should stay deferred unless layout changes make them easier to remove.
+- Header title and calendar date-range centering should be revisited before adding Admin and Resource Type controls. Admin/global settings belong in the header's right action area; Resource Type belongs in an app-owned calendar toolbar.
+- Secondary and destructive button colors are currently hard-coded semantic CSS; only primary/action branding is consistently theme-driven.
+- Series edit/delete currently uses sequential Dataverse writes, not a true transaction. Keep this accepted MVP limitation visible until a custom API/plugin/app-only backend is in scope.
+- Add a recurring-series "cancel future events" workflow in addition to the implemented occurrence and whole-series actions.
 - Verify `cose-res-demo-sandbox` code-app support and Joe's System Administrator rights there.
 - Confirm production environment custom role creation and System Administrator grant.
 - Run the non-admin Booker test: own reservation write/delete succeeds, peer reservation write/delete returns 403.

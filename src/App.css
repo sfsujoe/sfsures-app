@@ -65,6 +65,16 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+.routeLoading {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  background: var(--sfsures-bg, #ffffff);
+  color: #333333;
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
 /* Reduced motion */
 @media (prefers-reduced-motion: reduce) {
 

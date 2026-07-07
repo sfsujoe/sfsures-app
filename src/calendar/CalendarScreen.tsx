@@ -246,7 +246,11 @@ function dateInputFromIso(value: string | undefined | null): string {
 // Component
 // ---------------------------------------------------------------------------
 
-export function CalendarScreen() {
+interface CalendarScreenProps {
+  onOpenAdmin?: () => void
+}
+
+export function CalendarScreen({ onOpenAdmin }: CalendarScreenProps) {
   const { theme } = useTheme()
   const currentUser = useCurrentUser()
   const calendarRef = useRef<FullCalendar>(null)
@@ -919,6 +923,15 @@ export function CalendarScreen() {
           </a>
           <h1 className={styles.headerTitle}>SFSU Resource Reservations</h1>
           <div className={styles.profileSlot}>
+            {onOpenAdmin && (
+              <button
+                type="button"
+                className={styles.adminButton}
+                onClick={onOpenAdmin}
+              >
+                Admin
+              </button>
+            )}
             {profilePhotoUrl && !profilePhotoUnavailable ? (
               <img
                 src={profilePhotoUrl}

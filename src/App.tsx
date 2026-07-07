@@ -5,17 +5,22 @@
  *   ThemeProvider (loads active settings row; falls back to SFSU defaults)
  *     └─ ThemeCSSVars (applies --sfsures-* CSS custom properties to :root)
  *           └─ AccessGate (SF State ID check; blocks with modal if failed)
- *                 └─ CalendarScreen (the first real screen)
+ *                 └─ AppRoutes (calendar first; admin is lazy-loaded)
  *
  * Every screen added later goes inside AccessGate so the access check is
  * enforced for the whole app, not just the calendar route.
  */
 
-import { useEffect } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { ThemeProvider, useTheme } from './theme/ThemeContext'
 import { AccessGate } from './auth/AccessGate'
+import { useCurrentUser } from './auth/UserContext'
 import { CalendarScreen } from './calendar/CalendarScreen'
 import './App.css'
+
+const AdminApp = lazy(() => import('./admin/AdminApp'))
+
+type ActiveScreen = 'calendar' | 'admin'
 
 // ---------------------------------------------------------------------------
 // ThemeCSSVars — writes resolved hex values to CSS custom properties on <html>
@@ -43,12 +48,45 @@ function ThemeCSSVars() {
 // App
 // ---------------------------------------------------------------------------
 
+function AppRoutes() {
+  const currentUser = useCurrentUser()
+  const [activeScreen, setActiveScreen] = useState<ActiveScreen>('calendar')
+
+  useEffect(() => {
+    if (activeScreen === 'admin' && currentUser?.isAppAdmin !== true) {
+      setActiveScreen('calendar')
+    }
+  }, [activeScreen, currentUser?.isAppAdmin])
+
+  if (activeScreen === 'admin' && currentUser?.isAppAdmin) {
+    return (
+      <Suspense
+        fallback={
+          <div className="routeLoading" role="status">
+            Loading admin...
+          </div>
+        }
+      >
+        <AdminApp onBack={() => setActiveScreen('calendar')} />
+      </Suspense>
+    )
+  }
+
+  return (
+    <CalendarScreen
+      onOpenAdmin={
+        currentUser?.isAppAdmin ? () => setActiveScreen('admin') : undefined
+      }
+    />
+  )
+}
+
 export default function App() {
   return (
     <ThemeProvider>
       <ThemeCSSVars />
       <AccessGate>
-        <CalendarScreen />
+        <AppRoutes />
       </AccessGate>
     </ThemeProvider>
   )

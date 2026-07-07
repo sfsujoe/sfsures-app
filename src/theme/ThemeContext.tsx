@@ -12,7 +12,7 @@
  * are hard-capped in code: App Settings may only make them more restrictive.
  */
 
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
 import { Sfsures_appsettingsesService } from '../generated/services/Sfsures_appsettingsesService'
 import sfsuDefaultLogoUrl from '../assets/sfsu-logo.png?inline'
 
@@ -37,7 +37,7 @@ export interface AppTheme {
   selectedThemeName: string
 }
 
-const SFSU_DEFAULTS: AppTheme = {
+export const SFSU_DEFAULT_THEME: AppTheme = {
   primaryColor: '#442C8B',
   accentColor: '#DCAE27',
   backgroundColor: '#FFFFFF',
@@ -93,88 +93,101 @@ interface ThemeContextValue {
   theme: AppTheme
   reservationLimits: ReservationLimits
   loading: boolean
+  reloadSettings: () => Promise<void>
 }
 
 const ThemeContext = createContext<ThemeContextValue>({
-  theme: SFSU_DEFAULTS,
+  theme: SFSU_DEFAULT_THEME,
   reservationLimits: DEFAULT_RESERVATION_LIMITS,
   loading: true,
+  reloadSettings: async () => undefined,
 })
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setTheme] = useState<AppTheme>(SFSU_DEFAULTS)
+  const [theme, setTheme] = useState<AppTheme>(SFSU_DEFAULT_THEME)
   const [reservationLimits, setReservationLimits] = useState<ReservationLimits>(
     DEFAULT_RESERVATION_LIMITS
   )
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    const load = async () => {
+  const loadSettings = useCallback(async () => {
+    setLoading(true)
+
+    try {
+      let result
+
       try {
-        let result
-
-        try {
-          result = await Sfsures_appsettingsesService.getAll({
-            select: [...BASE_SETTINGS_SELECT, ...LIMIT_SETTINGS_SELECT],
-            filter: 'sfsures_isactive eq true',
-            top: 1,
-          })
-        } catch (err) {
-          console.warn(
-            'App Settings limit columns could not be loaded — retrying with theme columns only:',
-            err
-          )
-          result = await Sfsures_appsettingsesService.getAll({
-            select: BASE_SETTINGS_SELECT,
-            filter: 'sfsures_isactive eq true',
-            top: 1,
-          })
-        }
-
-        const row = result.data?.[0]
-        if (row) {
-          const limitRow = row as typeof row & AppSettingsLimitFields
-
-          setTheme({
-            primaryColor: themeText(row.sfsures_primarycolor, SFSU_DEFAULTS.primaryColor),
-            accentColor: themeText(row.sfsures_accentcolor, SFSU_DEFAULTS.accentColor),
-            backgroundColor: themeText(row.sfsures_backgroundcolor, SFSU_DEFAULTS.backgroundColor),
-            logoUrl: themeText(row.sfsures_logo, SFSU_DEFAULTS.logoUrl),
-            fontFamily: themeText(row.sfsures_fontfamily, SFSU_DEFAULTS.fontFamily),
-            borderRadius: row.sfsures_borderradiuspx ?? SFSU_DEFAULTS.borderRadius,
-            selectedThemeName: themeText(
-              row.sfsures_selectedthemename,
-              SFSU_DEFAULTS.selectedThemeName
-            ),
-          })
-
-          setReservationLimits({
-            maxOccurrences: restrictedWholeNumber(
-              limitRow.sfsures_maxreservationoccurrences,
-              DEFAULT_RESERVATION_LIMITS.maxOccurrences,
-              HARD_MAX_RESERVATION_OCCURRENCES
-            ),
-            maxSpanWeeks: restrictedWholeNumber(
-              limitRow.sfsures_maxreservationspanweeks,
-              DEFAULT_RESERVATION_LIMITS.maxSpanWeeks,
-              HARD_MAX_RESERVATION_SPAN_WEEKS
-            ),
-          })
-        }
-        // If no active row: stay on defaults — a fresh instance still renders correctly.
+        result = await Sfsures_appsettingsesService.getAll({
+          select: [...BASE_SETTINGS_SELECT, ...LIMIT_SETTINGS_SELECT],
+          filter: 'sfsures_isactive eq true',
+          top: 1,
+        })
       } catch (err) {
-        // Network or permission error: stay on defaults.
-        console.warn('App Settings load failed — using SFSU defaults:', err)
-      } finally {
-        setLoading(false)
+        console.warn(
+          'App Settings limit columns could not be loaded — retrying with theme columns only:',
+          err
+        )
+        result = await Sfsures_appsettingsesService.getAll({
+          select: BASE_SETTINGS_SELECT,
+          filter: 'sfsures_isactive eq true',
+          top: 1,
+        })
       }
-    }
 
-    load()
+      const row = result.data?.[0]
+      if (!row) {
+        setTheme(SFSU_DEFAULT_THEME)
+        setReservationLimits(DEFAULT_RESERVATION_LIMITS)
+        return
+      }
+
+      const limitRow = row as typeof row & AppSettingsLimitFields
+
+      setTheme({
+        primaryColor: themeText(row.sfsures_primarycolor, SFSU_DEFAULT_THEME.primaryColor),
+        accentColor: themeText(row.sfsures_accentcolor, SFSU_DEFAULT_THEME.accentColor),
+        backgroundColor: themeText(
+          row.sfsures_backgroundcolor,
+          SFSU_DEFAULT_THEME.backgroundColor
+        ),
+        logoUrl: themeText(row.sfsures_logo, SFSU_DEFAULT_THEME.logoUrl),
+        fontFamily: themeText(row.sfsures_fontfamily, SFSU_DEFAULT_THEME.fontFamily),
+        borderRadius: row.sfsures_borderradiuspx ?? SFSU_DEFAULT_THEME.borderRadius,
+        selectedThemeName: themeText(
+          row.sfsures_selectedthemename,
+          SFSU_DEFAULT_THEME.selectedThemeName
+        ),
+      })
+
+      setReservationLimits({
+        maxOccurrences: restrictedWholeNumber(
+          limitRow.sfsures_maxreservationoccurrences,
+          DEFAULT_RESERVATION_LIMITS.maxOccurrences,
+          HARD_MAX_RESERVATION_OCCURRENCES
+        ),
+        maxSpanWeeks: restrictedWholeNumber(
+          limitRow.sfsures_maxreservationspanweeks,
+          DEFAULT_RESERVATION_LIMITS.maxSpanWeeks,
+          HARD_MAX_RESERVATION_SPAN_WEEKS
+        ),
+      })
+    } catch (err) {
+      console.warn('App Settings load failed — using SFSU defaults:', err)
+      setTheme(SFSU_DEFAULT_THEME)
+      setReservationLimits(DEFAULT_RESERVATION_LIMITS)
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
+  useEffect(() => {
+    void loadSettings()
+  }, [loadSettings])
+
   return (
-    <ThemeContext.Provider value={{ theme, reservationLimits, loading }}>
+    <ThemeContext.Provider
+      value={{ theme, reservationLimits, loading, reloadSettings: loadSettings }}
+    >
       {children}
     </ThemeContext.Provider>
   )

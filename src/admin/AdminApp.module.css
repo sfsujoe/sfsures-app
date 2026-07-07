@@ -1,0 +1,439 @@
+.adminShell {
+  min-height: 100dvh;
+  display: grid;
+  grid-template-columns: minmax(11rem, 13.5rem) minmax(0, 1fr);
+  background: #f6f7f9;
+  color: #1a1a1a;
+  font-family: var(--sfsures-font, 'Source Sans 3', system-ui, -apple-system, 'Segoe UI', sans-serif);
+}
+
+.rail {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  border-right: 1px solid #dddddd;
+  background: #ffffff;
+  padding: 1rem 0.75rem;
+}
+
+.backButton,
+.navButton,
+.primaryButton,
+.secondaryButton {
+  min-height: 38px;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s, opacity 0.12s;
+}
+
+.backButton {
+  border: 1px solid #d8d8d8;
+  background: #ffffff;
+  color: #333333;
+}
+
+.backButton:hover {
+  background: #f0f0f0;
+}
+
+.nav {
+  display: grid;
+  gap: 0.375rem;
+}
+
+.navButton {
+  width: 100%;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #333333;
+  padding: 0.55rem 0.625rem;
+  text-align: left;
+}
+
+.navButton:hover:not(:disabled) {
+  background: #f3f1f8;
+}
+
+.navButtonActive {
+  border-color: color-mix(in srgb, var(--admin-primary, #442C8B) 28%, white);
+  background: color-mix(in srgb, var(--admin-primary, #442C8B) 12%, white);
+  color: var(--admin-primary, #442C8B);
+}
+
+.navButton:disabled {
+  cursor: not-allowed;
+  color: #8b8b8b;
+  opacity: 0.72;
+}
+
+.workspace {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.25rem;
+  overflow: auto;
+}
+
+.workspaceHeader {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid #dddddd;
+  padding-bottom: 0.875rem;
+}
+
+.eyebrow {
+  margin: 0 0 0.25rem;
+  color: var(--admin-primary, #442C8B);
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.workspaceHeader h1,
+.deniedPanel h1 {
+  margin: 0;
+  color: #1a1a1a;
+  font-size: 1.35rem;
+  line-height: 1.15;
+}
+
+.signedIn {
+  max-width: 18rem;
+  margin: 0;
+  color: #555555;
+  font-size: 0.875rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.settingsPanel {
+  border: 1px solid #dddddd;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 1rem;
+}
+
+.panelToolbar {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.panelToolbar h2 {
+  margin: 0;
+  color: #1a1a1a;
+  font-size: 1rem;
+  line-height: 1.25;
+}
+
+.panelMeta {
+  margin: 0.2rem 0 0;
+  color: #666666;
+  font-size: 0.8125rem;
+}
+
+.panelActions {
+  display: flex;
+  gap: 0.625rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.primaryButton {
+  border: 1px solid var(--admin-primary, #442C8B);
+  background: var(--admin-primary, #442C8B);
+  color: #ffffff;
+  padding: 0.45rem 0.875rem;
+}
+
+.primaryButton:hover:not(:disabled) {
+  filter: brightness(0.94);
+}
+
+.secondaryButton {
+  border: 1px solid #cfcfcf;
+  background: #ffffff;
+  color: #333333;
+  padding: 0.45rem 0.875rem;
+}
+
+.secondaryButton:hover:not(:disabled) {
+  background: #f3f3f3;
+}
+
+.primaryButton:disabled,
+.secondaryButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.66;
+}
+
+.errorBanner,
+.statusBanner {
+  margin: 0 0 1rem;
+  border-left: 3px solid;
+  border-radius: 4px;
+  padding: 0.625rem 0.75rem;
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+
+.errorBanner {
+  border-color: #b91c1c;
+  background: #fef2f2;
+  color: #333333;
+}
+
+.statusBanner {
+  border-color: #15803d;
+  background: #f0fdf4;
+  color: #14532d;
+}
+
+.inlineLoading {
+  min-height: 10rem;
+  display: grid;
+  place-items: center;
+  color: #555555;
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+.formStack {
+  display: grid;
+  gap: 1rem;
+}
+
+.formSection {
+  border-top: 1px solid #ececec;
+  padding-top: 1rem;
+}
+
+.formSection:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.sectionHeader h3 {
+  margin: 0;
+  color: #222222;
+  font-size: 0.9375rem;
+  line-height: 1.2;
+}
+
+.presetRow {
+  display: flex;
+  gap: 0.625rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.presetButton {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  border: 1px solid #d5d5d5;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #333333;
+  padding: 0.45rem 0.7rem;
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.presetButton:hover {
+  background: #f6f6f6;
+}
+
+.presetButtonActive {
+  border-color: var(--admin-primary, #442C8B);
+  color: var(--admin-primary, #442C8B);
+}
+
+.presetSwatches {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.presetSwatches span {
+  width: 14px;
+  height: 14px;
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  border-radius: 50%;
+}
+
+.fieldGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.875rem;
+}
+
+.field,
+.fieldWide {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.fieldWide {
+  grid-column: span 2;
+}
+
+.field > span:first-child,
+.fieldWide > span:first-child {
+  color: #444444;
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+
+.input {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid #cfcfcf;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #1a1a1a;
+  padding: 0.45rem 0.625rem;
+  font: inherit;
+  font-size: 0.875rem;
+}
+
+.input:focus {
+  border-color: var(--admin-primary, #442C8B);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--admin-primary, #442C8B) 18%, white);
+  outline: none;
+}
+
+.colorControl {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 0.5rem;
+}
+
+.colorPicker {
+  width: 42px;
+  height: 38px;
+  border: 1px solid #cfcfcf;
+  border-radius: 6px;
+  background: #ffffff;
+  padding: 3px;
+  cursor: pointer;
+}
+
+.numberWithCap {
+  display: grid;
+  grid-template-columns: minmax(6rem, 1fr) auto;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.numberWithCap > span {
+  color: #666666;
+  font-size: 0.75rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.denied {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  background: #f6f7f9;
+  padding: 1rem;
+}
+
+.deniedPanel {
+  width: min(100%, 24rem);
+  border: 1px solid #dddddd;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 1.25rem;
+}
+
+.deniedPanel .primaryButton {
+  margin-top: 1rem;
+}
+
+@media (max-width: 760px) {
+  .adminShell {
+    grid-template-columns: 5.75rem minmax(0, 1fr);
+  }
+
+  .rail {
+    padding: 0.75rem 0.5rem;
+  }
+
+  .backButton,
+  .navButton {
+    min-height: 36px;
+    padding: 0.45rem 0.35rem;
+    font-size: 0.75rem;
+    text-align: center;
+    overflow-wrap: anywhere;
+  }
+
+  .workspace {
+    padding: 0.875rem;
+  }
+
+  .workspaceHeader {
+    align-items: start;
+    flex-direction: column;
+  }
+
+  .signedIn {
+    max-width: 100%;
+    text-align: left;
+  }
+
+  .settingsPanel {
+    padding: 0.875rem;
+  }
+
+  .panelToolbar {
+    flex-direction: column;
+  }
+
+  .panelActions {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .primaryButton,
+  .secondaryButton {
+    flex: 1 1 auto;
+  }
+
+  .fieldGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .fieldWide {
+    grid-column: span 1;
+  }
+
+  .numberWithCap {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.25rem;
+  }
+}
