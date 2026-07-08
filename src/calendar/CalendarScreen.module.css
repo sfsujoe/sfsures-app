@@ -224,7 +224,7 @@
 }
 
 .calendarWrap :global(.fc .fc-col-header-cell) {
-  background: #FFEC82;
+  background: var(--sfsures-date-header, #FFEC82);
 }
 
 .calendarWrap :global(.fc .fc-col-header-cell-cushion) {

@@ -7,39 +7,22 @@ import {
   HARD_MAX_RESERVATION_SPAN_WEEKS,
   SFSU_DEFAULT_FONT_FAMILY,
   SFSU_DEFAULT_THEME,
+  SFSU_THEME_PRESETS,
+  themePresetByName,
   useTheme,
 } from '../theme/ThemeContext'
 import styles from './AdminApp.module.css'
 
 interface SettingsForm {
-  name: string
   selectedThemeName: string
-  primaryColor: string
-  accentColor: string
-  backgroundColor: string
   logoUrl: string
-  fontFamily: string
   borderRadius: string
   maxOccurrences: string
   maxSpanWeeks: string
 }
 
-interface ThemePreset {
-  name: string
-  primaryColor: string
-  accentColor: string
-  backgroundColor: string
-  logoUrl: string
-  fontFamily: string
-  borderRadius: number
-}
-
 interface ParsedSettings {
-  primaryColor: string
-  accentColor: string
-  backgroundColor: string
   logoUrl: string | null
-  fontFamily: string
   borderRadius: number
   maxOccurrences: number
   maxSpanWeeks: number
@@ -47,12 +30,7 @@ interface ParsedSettings {
 
 const SETTINGS_SELECT = [
   'sfsures_appsettingsid',
-  'sfsures_name',
-  'sfsures_primarycolor',
-  'sfsures_accentcolor',
-  'sfsures_backgroundcolor',
   'sfsures_logo',
-  'sfsures_fontfamily',
   'sfsures_borderradiuspx',
   'sfsures_selectedthemename',
   'sfsures_isactive',
@@ -60,43 +38,14 @@ const SETTINGS_SELECT = [
   'sfsures_maxreservationspanweeks',
 ]
 
-const THEME_PRESETS: ThemePreset[] = [
-  {
-    name: SFSU_DEFAULT_THEME.selectedThemeName,
-    primaryColor: SFSU_DEFAULT_THEME.primaryColor,
-    accentColor: SFSU_DEFAULT_THEME.accentColor,
-    backgroundColor: SFSU_DEFAULT_THEME.backgroundColor,
-    logoUrl: '',
-    fontFamily: SFSU_DEFAULT_FONT_FAMILY,
-    borderRadius: SFSU_DEFAULT_THEME.borderRadius,
-  },
-]
+const SETTINGS_ROW_NAME = 'SFSU Reservation Settings'
 
 const DEFAULT_FORM: SettingsForm = {
-  name: 'SFSU Reservation Settings',
   selectedThemeName: SFSU_DEFAULT_THEME.selectedThemeName,
-  primaryColor: SFSU_DEFAULT_THEME.primaryColor,
-  accentColor: SFSU_DEFAULT_THEME.accentColor,
-  backgroundColor: SFSU_DEFAULT_THEME.backgroundColor,
   logoUrl: '',
-  fontFamily: SFSU_DEFAULT_FONT_FAMILY,
   borderRadius: String(SFSU_DEFAULT_THEME.borderRadius),
   maxOccurrences: String(DEFAULT_RESERVATION_LIMITS.maxOccurrences),
   maxSpanWeeks: String(DEFAULT_RESERVATION_LIMITS.maxSpanWeeks),
-}
-
-const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/
-const THEME_FIELD_KEYS = new Set<keyof SettingsForm>([
-  'primaryColor',
-  'accentColor',
-  'backgroundColor',
-  'logoUrl',
-  'fontFamily',
-  'borderRadius',
-])
-
-function normalizeHex(value: string): string {
-  return value.trim().toUpperCase()
 }
 
 function wholeNumberFromInput(value: string): number | null {
@@ -121,18 +70,12 @@ function formFromRow(row: Sfsures_appsettingses | undefined): SettingsForm {
     return DEFAULT_FORM
   }
 
+  const selectedPreset = themePresetByName(row.sfsures_selectedthemename)
+
   return {
-    name: row.sfsures_name?.trim() || DEFAULT_FORM.name,
-    selectedThemeName:
-      row.sfsures_selectedthemename?.trim() || SFSU_DEFAULT_THEME.selectedThemeName,
-    primaryColor: normalizeHex(row.sfsures_primarycolor || SFSU_DEFAULT_THEME.primaryColor),
-    accentColor: normalizeHex(row.sfsures_accentcolor || SFSU_DEFAULT_THEME.accentColor),
-    backgroundColor: normalizeHex(
-      row.sfsures_backgroundcolor || SFSU_DEFAULT_THEME.backgroundColor
-    ),
+    selectedThemeName: selectedPreset.name,
     logoUrl: row.sfsures_logo?.trim() || '',
-    fontFamily: row.sfsures_fontfamily?.trim() || SFSU_DEFAULT_FONT_FAMILY,
-    borderRadius: String(row.sfsures_borderradiuspx ?? SFSU_DEFAULT_THEME.borderRadius),
+    borderRadius: String(row.sfsures_borderradiuspx ?? selectedPreset.borderRadius),
     maxOccurrences: String(
       limitedNumber(
         row.sfsures_maxreservationoccurrences,
@@ -151,22 +94,6 @@ function formFromRow(row: Sfsures_appsettingses | undefined): SettingsForm {
 }
 
 function validateForm(form: SettingsForm): { error: string } | { values: ParsedSettings } {
-  const primaryColor = normalizeHex(form.primaryColor)
-  const accentColor = normalizeHex(form.accentColor)
-  const backgroundColor = normalizeHex(form.backgroundColor)
-
-  if (!HEX_COLOR_RE.test(primaryColor)) {
-    return { error: 'Primary color must be a 6-digit hex value with #.' }
-  }
-
-  if (!HEX_COLOR_RE.test(accentColor)) {
-    return { error: 'Accent color must be a 6-digit hex value with #.' }
-  }
-
-  if (!HEX_COLOR_RE.test(backgroundColor)) {
-    return { error: 'Background color must be a 6-digit hex value with #.' }
-  }
-
   const logoUrl = form.logoUrl.trim()
   if (logoUrl && !/^https:\/\//i.test(logoUrl)) {
     return { error: 'Logo URL must start with https://.' }
@@ -201,51 +128,12 @@ function validateForm(form: SettingsForm): { error: string } | { values: ParsedS
 
   return {
     values: {
-      primaryColor,
-      accentColor,
-      backgroundColor,
       logoUrl: logoUrl || null,
-      fontFamily: form.fontFamily.trim() || SFSU_DEFAULT_FONT_FAMILY,
       borderRadius,
       maxOccurrences,
       maxSpanWeeks,
     },
   }
-}
-
-function ColorField({
-  field,
-  label,
-  value,
-  onChange,
-}: {
-  field: keyof Pick<SettingsForm, 'primaryColor' | 'accentColor' | 'backgroundColor'>
-  label: string
-  value: string
-  onChange: (field: keyof SettingsForm, value: string) => void
-}) {
-  const colorValue = HEX_COLOR_RE.test(value) ? value : SFSU_DEFAULT_THEME.primaryColor
-
-  return (
-    <label className={styles.field}>
-      <span>{label}</span>
-      <span className={styles.colorControl}>
-        <input
-          type="color"
-          className={styles.colorPicker}
-          value={colorValue}
-          aria-label={`${label} picker`}
-          onChange={(event) => onChange(field, normalizeHex(event.target.value))}
-        />
-        <input
-          className={styles.input}
-          value={value}
-          spellCheck={false}
-          onChange={(event) => onChange(field, event.target.value)}
-        />
-      </span>
-    </label>
-  )
 }
 
 export function AppSettingsScreen() {
@@ -297,25 +185,15 @@ export function AppSettingsScreen() {
     setForm((current) => ({
       ...current,
       [field]: value,
-      selectedThemeName:
-        field === 'selectedThemeName'
-          ? value
-          : THEME_FIELD_KEYS.has(field)
-            ? 'Custom'
-            : current.selectedThemeName,
     }))
     setStatus('')
   }
 
-  function applyPreset(preset: ThemePreset) {
+  function selectTheme(themeName: string) {
+    const preset = themePresetByName(themeName)
     setForm((current) => ({
       ...current,
       selectedThemeName: preset.name,
-      primaryColor: preset.primaryColor,
-      accentColor: preset.accentColor,
-      backgroundColor: preset.backgroundColor,
-      logoUrl: preset.logoUrl,
-      fontFamily: preset.fontFamily,
       borderRadius: String(preset.borderRadius),
     }))
     setStatus('')
@@ -340,16 +218,16 @@ export function AppSettingsScreen() {
     }
 
     const values = parsed.values
+    const selectedPreset = themePresetByName(form.selectedThemeName)
     const payload = {
-      sfsures_name: form.name.trim() || DEFAULT_FORM.name,
-      sfsures_primarycolor: values.primaryColor,
-      sfsures_accentcolor: values.accentColor,
-      sfsures_backgroundcolor: values.backgroundColor,
+      sfsures_primarycolor: selectedPreset.primaryColor,
+      sfsures_accentcolor: selectedPreset.accentColor,
+      sfsures_backgroundcolor: selectedPreset.backgroundColor,
       sfsures_logo: values.logoUrl,
-      sfsures_fontfamily: values.fontFamily,
+      sfsures_fontfamily: SFSU_DEFAULT_FONT_FAMILY,
       sfsures_borderradiuspx: values.borderRadius,
       sfsures_isactive: true,
-      sfsures_selectedthemename: form.selectedThemeName.trim() || 'Custom',
+      sfsures_selectedthemename: selectedPreset.name,
       sfsures_maxreservationoccurrences: values.maxOccurrences,
       sfsures_maxreservationspanweeks: values.maxSpanWeeks,
     }
@@ -365,6 +243,7 @@ export function AppSettingsScreen() {
       } else {
         const result = await Sfsures_appsettingsesService.create({
           ...payload,
+          sfsures_name: SETTINGS_ROW_NAME,
           statecode: 0,
           statuscode: 1,
         } as unknown as Parameters<typeof Sfsures_appsettingsesService.create>[0])
@@ -437,67 +316,32 @@ export function AppSettingsScreen() {
               <h3 id="settings-theme-heading">Theme</h3>
             </div>
 
-            <div className={styles.presetRow} aria-label="Theme presets">
-              {THEME_PRESETS.map((preset) => (
+            <div className={styles.themeGrid} aria-label="Theme presets">
+              {SFSU_THEME_PRESETS.map((preset) => (
                 <button
                   key={preset.name}
                   type="button"
                   className={
                     form.selectedThemeName === preset.name
-                      ? `${styles.presetButton} ${styles.presetButtonActive}`
-                      : styles.presetButton
+                      ? `${styles.themeButton} ${styles.themeButtonActive}`
+                      : styles.themeButton
                   }
-                  onClick={() => applyPreset(preset)}
+                  aria-pressed={form.selectedThemeName === preset.name}
+                  onClick={() => selectTheme(preset.name)}
                 >
-                  <span className={styles.presetSwatches} aria-hidden="true">
-                    <span style={{ backgroundColor: preset.primaryColor }} />
+                  <span
+                    className={styles.themePreview}
+                    style={{ backgroundColor: preset.primaryColor }}
+                    aria-hidden="true"
+                  >
+                    <span style={{ backgroundColor: preset.dateHeaderColor }} />
                     <span style={{ backgroundColor: preset.accentColor }} />
-                    <span style={{ backgroundColor: preset.backgroundColor }} />
                   </span>
-                  <span>{preset.name}</span>
+                  <span className={styles.themeName}>{preset.name}</span>
                 </button>
               ))}
             </div>
 
-            <div className={styles.fieldGrid}>
-              <label className={styles.field}>
-                <span>Settings name</span>
-                <input
-                  className={styles.input}
-                  value={form.name}
-                  onChange={(event) => updateField('name', event.target.value)}
-                />
-              </label>
-              <label className={styles.field}>
-                <span>Theme name</span>
-                <input
-                  className={styles.input}
-                  value={form.selectedThemeName}
-                  onChange={(event) => updateField('selectedThemeName', event.target.value)}
-                />
-              </label>
-            </div>
-
-            <div className={styles.fieldGrid}>
-              <ColorField
-                field="primaryColor"
-                label="Primary color"
-                value={form.primaryColor}
-                onChange={updateField}
-              />
-              <ColorField
-                field="accentColor"
-                label="Accent color"
-                value={form.accentColor}
-                onChange={updateField}
-              />
-              <ColorField
-                field="backgroundColor"
-                label="Background color"
-                value={form.backgroundColor}
-                onChange={updateField}
-              />
-            </div>
           </section>
 
           <section className={styles.formSection} aria-labelledby="settings-branding-heading">
@@ -514,14 +358,6 @@ export function AppSettingsScreen() {
                   placeholder="https://"
                   value={form.logoUrl}
                   onChange={(event) => updateField('logoUrl', event.target.value)}
-                />
-              </label>
-              <label className={styles.fieldWide}>
-                <span>Font family</span>
-                <input
-                  className={styles.input}
-                  value={form.fontFamily}
-                  onChange={(event) => updateField('fontFamily', event.target.value)}
                 />
               </label>
               <label className={styles.field}>

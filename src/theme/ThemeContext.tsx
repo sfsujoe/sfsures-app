@@ -31,20 +31,84 @@ export interface AppTheme {
   primaryColor: string    // hex with #, e.g. #442C8B
   accentColor: string     // hex with #, e.g. #DCAE27
   backgroundColor: string // hex with #, e.g. #FFFFFF
+  dateHeaderColor: string // hex with #; used by FullCalendar date header cells
   logoUrl: string
   fontFamily: string
   borderRadius: number    // px
   selectedThemeName: string
 }
 
-export const SFSU_DEFAULT_THEME: AppTheme = {
+export interface AppThemePreset {
+  name: string
+  primaryColor: string
+  accentColor: string
+  backgroundColor: string
+  dateHeaderColor: string
+  borderRadius: number
+}
+
+export const SFSU_DEFAULT_THEME_PRESET: AppThemePreset = {
+  name: 'Core Purple',
   primaryColor: '#442C8B',
   accentColor: '#DCAE27',
   backgroundColor: '#FFFFFF',
+  dateHeaderColor: '#FFEC82',
+  borderRadius: 6,
+}
+
+export const SFSU_THEME_PRESETS: AppThemePreset[] = [
+  SFSU_DEFAULT_THEME_PRESET,
+  {
+    name: 'Purple #2',
+    primaryColor: '#665AA7',
+    accentColor: '#B1A5D0',
+    backgroundColor: '#FFFFFF',
+    dateHeaderColor: '#FFEC82',
+    borderRadius: 6,
+  },
+  {
+    name: 'Ocean',
+    primaryColor: '#044361',
+    accentColor: '#70B3D7',
+    backgroundColor: '#FFFFFF',
+    dateHeaderColor: '#F6F0D6',
+    borderRadius: 6,
+  },
+  {
+    name: 'Forest',
+    primaryColor: '#005755',
+    accentColor: '#79C9AE',
+    backgroundColor: '#FFFFFF',
+    dateHeaderColor: '#FFE2B4',
+    borderRadius: 6,
+  },
+  {
+    name: 'Rock',
+    primaryColor: '#6E5D53',
+    accentColor: '#CC4D35',
+    backgroundColor: '#FFFFFF',
+    dateHeaderColor: '#F6F0D6',
+    borderRadius: 6,
+  },
+]
+
+export function themePresetByName(name: string | undefined | null): AppThemePreset {
+  const normalizedName = name?.trim().toLowerCase()
+  return (
+    SFSU_THEME_PRESETS.find((preset) => preset.name.toLowerCase() === normalizedName) ??
+    SFSU_DEFAULT_THEME_PRESET
+  )
+}
+
+export const SFSU_DEFAULT_THEME: AppTheme = {
+  primaryColor: SFSU_DEFAULT_THEME_PRESET.primaryColor,
+  accentColor: SFSU_DEFAULT_THEME_PRESET.accentColor,
+  backgroundColor: SFSU_DEFAULT_THEME_PRESET.backgroundColor,
+  dateHeaderColor: SFSU_DEFAULT_THEME_PRESET.dateHeaderColor,
   logoUrl: sfsuDefaultLogoUrl,
   fontFamily: SFSU_DEFAULT_FONT_FAMILY,
-  borderRadius: 6,
-  selectedThemeName: 'SFSU Default',
+  borderRadius: SFSU_DEFAULT_THEME_PRESET.borderRadius,
+  selectedThemeName: SFSU_DEFAULT_THEME_PRESET.name,
 }
 
 export const DEFAULT_RESERVATION_LIMITS: ReservationLimits = {
@@ -143,20 +207,17 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
       const limitRow = row as typeof row & AppSettingsLimitFields
 
+      const selectedPreset = themePresetByName(row.sfsures_selectedthemename)
+
       setTheme({
-        primaryColor: themeText(row.sfsures_primarycolor, SFSU_DEFAULT_THEME.primaryColor),
-        accentColor: themeText(row.sfsures_accentcolor, SFSU_DEFAULT_THEME.accentColor),
-        backgroundColor: themeText(
-          row.sfsures_backgroundcolor,
-          SFSU_DEFAULT_THEME.backgroundColor
-        ),
+        primaryColor: selectedPreset.primaryColor,
+        accentColor: selectedPreset.accentColor,
+        backgroundColor: selectedPreset.backgroundColor,
+        dateHeaderColor: selectedPreset.dateHeaderColor,
         logoUrl: themeText(row.sfsures_logo, SFSU_DEFAULT_THEME.logoUrl),
-        fontFamily: themeText(row.sfsures_fontfamily, SFSU_DEFAULT_THEME.fontFamily),
-        borderRadius: row.sfsures_borderradiuspx ?? SFSU_DEFAULT_THEME.borderRadius,
-        selectedThemeName: themeText(
-          row.sfsures_selectedthemename,
-          SFSU_DEFAULT_THEME.selectedThemeName
-        ),
+        fontFamily: SFSU_DEFAULT_FONT_FAMILY,
+        borderRadius: row.sfsures_borderradiuspx ?? selectedPreset.borderRadius,
+        selectedThemeName: selectedPreset.name,
       })
 
       setReservationLimits({

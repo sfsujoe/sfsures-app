@@ -37,6 +37,7 @@ function ThemeCSSVars() {
     root.style.setProperty('--sfsures-primary', theme.primaryColor)
     root.style.setProperty('--sfsures-accent', theme.accentColor)
     root.style.setProperty('--sfsures-bg', theme.backgroundColor)
+    root.style.setProperty('--sfsures-date-header', theme.dateHeaderColor)
     root.style.setProperty('--sfsures-font', theme.fontFamily)
     root.style.setProperty('--sfsures-radius', `${theme.borderRadius}px`)
   }, [theme, loading])
