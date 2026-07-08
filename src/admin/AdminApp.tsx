@@ -39,6 +39,7 @@ export default function AdminApp({ onBack }: AdminAppProps) {
   const adminVars = {
     '--admin-primary': theme.primaryColor,
     '--admin-accent': theme.accentColor,
+    '--admin-date-header': theme.dateHeaderColor,
   } as CSSProperties
 
   if (currentUser?.isAppAdmin !== true) {
