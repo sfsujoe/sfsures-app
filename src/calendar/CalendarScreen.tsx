@@ -39,8 +39,15 @@ import { Sfsures_reservationoccurrencesService } from '../generated/services/Sfs
 import { Sfsures_reservationseriesesService } from '../generated/services/Sfsures_reservationseriesesService'
 import { Sfsures_blackoutwindowsService } from '../generated/services/Sfsures_blackoutwindowsService'
 import { Sfsures_appusersService } from '../generated/services/Sfsures_appusersService'
+import { Sfsures_resourcesService } from '../generated/services/Sfsures_resourcesService'
 import { Office365UsersService } from '../generated/services/Office365UsersService'
+import type { Sfsures_resourcessfsures_calendarcolor } from '../generated/models/Sfsures_resourcesModel'
 import { useTheme } from '../theme/ThemeContext'
+import {
+  resourceColorByValue,
+  resourceColorForBackground,
+  type ResourceColorOption,
+} from '../theme/resourceColors'
 import { useCurrentUser } from '../auth/UserContext'
 import { BookingModal, type EditableReservation, type EditableReservationSeries } from '../booking/BookingModal'
 import { useFocusTrap } from '../a11y/useFocusTrap'
@@ -71,6 +78,11 @@ interface BlackoutRow {
   sfsures_end?: string
   sfsures_reason?: string
   'sfsures_Resource@OData.Community.Display.V1.FormattedValue'?: string
+}
+
+interface ResourceRow {
+  sfsures_resourceid?: string
+  sfsures_calendarcolor?: Sfsures_resourcessfsures_calendarcolor
 }
 
 interface ReservationOwnerDetails {
@@ -108,18 +120,24 @@ function nextHourSlot(): { start: Date; end: Date } {
   return { start, end }
 }
 
-function occurrenceToEvent(row: OccurrenceRow, primaryColor: string): EventInput {
+function occurrenceToEvent(
+  row: OccurrenceRow,
+  resourceColorsById: Map<string, ResourceColorOption>,
+  fallbackColor: ResourceColorOption
+): EventInput {
   const resourceName =
     row['_sfsures_resource_value@OData.Community.Display.V1.FormattedValue'] ?? 'Resource'
+  const resourceColor =
+    resourceColorsById.get(row._sfsures_resource_value ?? '') ?? fallbackColor
 
   return {
     id: row.sfsures_reservationoccurrenceid ?? '',
     title: resourceName,
     start: toIso(row.sfsures_start),
     end: toIso(row.sfsures_end),
-    backgroundColor: primaryColor,
-    borderColor: primaryColor,
-    textColor: '#ffffff',
+    backgroundColor: resourceColor.backgroundColor,
+    borderColor: resourceColor.backgroundColor,
+    textColor: resourceColor.textColor,
     extendedProps: {
       ownerId: row._sfsures_bookingowner_value ?? '',
       resourceId: row._sfsures_resource_value ?? '',
@@ -456,7 +474,7 @@ export function CalendarScreen({ onOpenAdmin }: CalendarScreenProps) {
       const endIso = rangeEnd.toISOString().split('.')[0] + 'Z'
 
       try {
-        const [occResult, blackoutResult] = await Promise.all([
+        const [occResult, blackoutResult, resourceResult] = await Promise.all([
           Sfsures_reservationoccurrencesService.getAll({
             select: [
               'sfsures_reservationoccurrenceid',
@@ -490,10 +508,28 @@ export function CalendarScreen({ onOpenAdmin }: CalendarScreenProps) {
             orderBy: ['sfsures_start asc'],
             top: 200,
           }),
+          Sfsures_resourcesService.getAll({
+            select: ['sfsures_resourceid', 'sfsures_calendarcolor'],
+            filter: `sfsures_recordstatus eq ${RECORD_STATUS_ACTIVE}`,
+            orderBy: ['sfsures_name asc'],
+            top: 500,
+          }),
         ])
 
+        const fallbackResourceColor = resourceColorForBackground(theme.primaryColor)
+        const resourceColorsById = new Map<string, ResourceColorOption>()
+
+        for (const row of (resourceResult.data ?? []) as ResourceRow[]) {
+          const resourceId = row.sfsures_resourceid
+          const resourceColor = resourceColorByValue(row.sfsures_calendarcolor)
+
+          if (resourceId && resourceColor) {
+            resourceColorsById.set(resourceId, resourceColor)
+          }
+        }
+
         const occEvents = (occResult.data ?? []).map((row) =>
-          occurrenceToEvent(row as OccurrenceRow, theme.primaryColor)
+          occurrenceToEvent(row as OccurrenceRow, resourceColorsById, fallbackResourceColor)
         )
 
         const blackoutEvents = (blackoutResult.data ?? []).map((row) =>

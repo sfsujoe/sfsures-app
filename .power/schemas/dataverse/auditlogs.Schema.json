@@ -186,10 +186,13 @@
             "User Added",
             "User Disabled",
             "User Edited",
-            "Group Created or Edited",
             "Resource Catalog Edited",
             "Blackout Window Edited",
-            "Theme or Settings Changed"
+            "Theme or Settings Changed",
+            "Group Created",
+            "Group Edited",
+            "Group Member Added",
+            "Group Member Removed"
           ],
           "x-ms-enum-values": [
             997330000,
@@ -198,12 +201,18 @@
             997330003,
             997330004,
             997330005,
-            997330006,
             997330007,
             997330008,
-            997330009
+            997330009,
+            997330006,
+            997330010,
+            997330011,
+            997330012
           ],
           "Color": [
+            null,
+            null,
+            null,
             null,
             null,
             null,
@@ -367,6 +376,14 @@
           "x-ms-dataverse-attribute": "sfsures_targetid",
           "x-ms-dataverse-type": "StringType",
           "x-ms-schema-name": "sfsures_TargetID",
+          "maxLength": 100
+        },
+        "sfsures_targetkey": {
+          "type": "string",
+          "title": "Target Key",
+          "x-ms-dataverse-attribute": "sfsures_targetkey",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "sfsures_TargetKey",
           "maxLength": 100
         },
         "sfsures_targetlabel": {

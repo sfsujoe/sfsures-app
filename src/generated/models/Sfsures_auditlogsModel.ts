@@ -9,10 +9,13 @@ export const Sfsures_auditlogssfsures_actiontype = {
   997330003: 'UserAdded',
   997330004: 'UserDisabled',
   997330005: 'UserEdited',
-  997330006: 'GroupCreatedorEdited',
   997330007: 'ResourceCatalogEdited',
   997330008: 'BlackoutWindowEdited',
-  997330009: 'ThemeorSettingsChanged'
+  997330009: 'ThemeorSettingsChanged',
+  997330006: 'GroupCreated',
+  997330010: 'GroupEdited',
+  997330011: 'GroupMemberAdded',
+  997330012: 'GroupMemberRemoved'
 } as const;
 export type Sfsures_auditlogssfsures_actiontype = keyof typeof Sfsures_auditlogssfsures_actiontype;
 export const Sfsures_auditlogssfsures_entrytype = {
@@ -62,6 +65,7 @@ export interface Sfsures_auditlogsBase {
   sfsures_name: string;
   sfsures_outcome?: Sfsures_auditlogssfsures_outcome;
   sfsures_targetid?: string;
+  sfsures_targetkey?: string;
   sfsures_targetlabel?: string;
   sfsures_targettype?: Sfsures_auditlogssfsures_targettype;
   statecode: Sfsures_auditlogsstatecode;

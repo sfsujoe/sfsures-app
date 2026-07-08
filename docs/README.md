@@ -2,7 +2,7 @@
 
 This folder is the local reference library for the SFSU Resource Reservation System, a Power Apps Code App built with React, TypeScript, Vite, FullCalendar, Office365Users, and Microsoft Dataverse. The app is intended to replace LabArchives Scheduler for SFSU resource booking, with a Dataverse-backed model for resources, reservations, blackout windows, group-scoped access, theming, audit logging, and per-department managed-solution replication.
 
-Last indexed: 2026-07-07.
+Last indexed: 2026-07-08.
 
 ## Quick Project Shape
 
@@ -22,9 +22,10 @@ Last indexed: 2026-07-07.
 6. [UI Branding and Booking Confirmation Polish Addendum](sfsu_ui_branding_and_booking_confirmation_addendum.md) for the current modal confirmation behavior, bundled SFSU logo/font defaults, and calendar visual polish.
 7. [Reservation Details, Comments, and Limits Addendum](sfsu_ui_reservation_details_comments_and_limits_addendum.md) for the current header/profile polish, reservation detail modal, comments, and App Settings-backed reservation limits.
 8. [Recurrence, App Permissions, and Calendar Actions Addendum](sfsu_recurrence_permissions_calendar_addendum.md) for current recurring reservation workflows, app-level group permissions, edit/delete reservation actions, and calendar-layout decisions.
-9. [Accessibility Tier 1 Addendum](sfsu_accessibility_tier1_addendum.md) for completed accessibility fixes and queued DPRC/WCAG work.
-10. [Environment and Demo Planning Addendum](sfsu_environment_and_demo_planning_addendum.md) for sandbox/production environment strategy and demo plan.
-11. Older planning and exploration docs are useful for rationale, but treat newer addenda above as current when they conflict.
+9. [Admin Theme, Users, Groups, and Audit Logging Addendum](sfsu_admin_theme_users_groups_audit_addendum.md) for the current lazy admin shell, SFSU preset theming, resource calendar colors, Users/Groups screens, and first group audit-log write path.
+10. [Accessibility Tier 1 Addendum](sfsu_accessibility_tier1_addendum.md) for completed accessibility fixes and queued DPRC/WCAG work.
+11. [Environment and Demo Planning Addendum](sfsu_environment_and_demo_planning_addendum.md) for sandbox/production environment strategy and demo plan.
+12. Older planning and exploration docs are useful for rationale, but treat newer addenda above as current when they conflict.
 
 ## Session Workflow
 
@@ -39,6 +40,7 @@ Last indexed: 2026-07-07.
 | [README.md](README.md) | This onboarding guide and index for future local reference sessions. |
 | [sfsu_access_validation_and_logging_addendum.md](sfsu_access_validation_and_logging_addendum.md) | Proves the write path, confirms the two-grant access model, selects Dataverse-native Owner teams, and locks the audit-log table concept. |
 | [sfsu_accessibility_tier1_addendum.md](sfsu_accessibility_tier1_addendum.md) | Records Tier 1 accessibility and UI-polish work: focus traps, keyboard booking path, live regions, focus rings, and iframe/CSP findings. |
+| [sfsu_admin_theme_users_groups_audit_addendum.md](sfsu_admin_theme_users_groups_audit_addendum.md) | Documents the lazy admin shell, SFSU preset theming, resource calendar colors, Users/Groups admin screens, and first group audit-log writes. |
 | [sfsu_booking_modal_and_layout_fix_addendum.md](sfsu_booking_modal_and_layout_fix_addendum.md) | Documents the working published booking loop, AccessGate identity fix, full-width layout fix, lookup read/write conventions, and remaining UI gaps. |
 | [sfsu_codeapp_vscode_runbook_addendum.md](sfsu_codeapp_vscode_runbook_addendum.md) | Validates the VS Code + `npx power-apps` Code App path, generated Dataverse service use, and delegation-safe query pattern. |
 | [sfsu_dataverse_build_sheet.md](sfsu_dataverse_build_sheet.md) | Canonical schema and replication reference for the 14 Dataverse tables, ownership model, security-role plan, and pre-publish checks. |
@@ -84,11 +86,12 @@ Schema rules to preserve:
 - Reservation Series and Reservation Occurrence are User/team-owned; the other 12 tables are Organization-owned.
 - `sfsures_BookingOwner` is business data and is distinct from Dataverse system `OwnerId`.
 - Reservation Series and Reservation Occurrence both include optional plain-text `sfsures_comments`; generated occurrence rows should carry comments for fast calendar/detail reads.
+- Resource includes palette-only `Calendar Color` for reservation event colors; current choices are the SFSU primary/secondary palette colors except Bridge.
 - Resource attributes use five typed value columns, not JSON.
 - Group resource-type access and group resource access are two separate explicit junction tables.
 - App User is keyed by write-once SF State ID.
-- Group includes stable `Group Key` and `Is System Group` fields. App logic keys off system group keys such as `APP_ADMINS` and `REPORT_VIEWERS`, not mutable group display names.
-- Audit Log is append-only, denormalized on purpose, and should not use live lookup relationships for historical context.
+- Group includes stable `Group Key` and `Is System Group` fields. App logic keys off system group keys such as `APP_ADMINS` and `REPORT_VIEWERS`, not mutable group display names. Group Key should stay hidden from normal app UI.
+- Audit Log is append-only, denormalized on purpose, and should not use live lookup relationships for historical context. It now includes generic `Target Key` plus split group action types for group creation/editing and membership add/remove.
 
 For generated TypeScript names, use [sfsu_ui_build_kickoff_addendum.md](sfsu_ui_build_kickoff_addendum.md). The CLI pluralizes some names unexpectedly, including `appsettingses` and `reservationserieses`.
 
@@ -101,6 +104,9 @@ Current architecture:
 - Office365Users supplies the signed-in user's UPN; the app extracts the first 9 characters as SF State ID.
 - FullCalendar renders reservation occurrences and blackout windows.
 - App-level group membership drives UI visibility for app-admin and report-view capabilities; Dataverse roles still define the backend access boundary.
+- Admin screens live behind a lazy-loaded left-rail shell so the calendar-first experience stays light.
+- SFSU theme choices are preset-only; Source Sans 3 is fixed and arbitrary color/font selection is intentionally excluded from admin UI.
+- Resource reservation event colors use a palette-only Resource `Calendar Color` choice plus dynamic black/white event text for contrast.
 - Per-department instances are preferred over one campus-wide app; managed-solution export/import is the replication path.
 - Environment-level Dataverse security roles are the real authorization boundary; in-app role checks are presentation logic only.
 
@@ -140,23 +146,30 @@ Current MVP, based on the docs and source tree:
 - React/Vite Code App scaffold exists and is bound to the Power Apps environment in `power.config.json`.
 - All 14 Dataverse service/model files are generated.
 - `AccessGate` validates the signed-in user through Office365Users and App User rows before rendering content, then loads active app group memberships for UI permission flags.
-- `CalendarScreen` loads occurrences and blackout windows with delegation-safe query shapes and renders them with FullCalendar, including centered header branding, signed-in user profile photo, yellow date headers, 24-hour Week/Day views, and a reservation detail dialog with owner profile, comments, and edit/delete actions.
+- `CalendarScreen` loads occurrences, blackout windows, and active resource calendar colors with delegation-safe query shapes and renders them with FullCalendar, including centered header branding, signed-in user profile photo, theme-driven date headers, 24-hour Week/Day views, resource-colored reservation events with contrast-aware text, and a reservation detail dialog with owner profile, comments, and edit/delete actions.
 - `BookingModal` creates and updates single reservations and recurring reservation series against real Dataverse data, including optional Comments, then shows a centered confirmation state with `Edit Reservation` and focused `OK`.
 - Recurring reservation create/edit supports daily, weekly, and monthly patterns with count/until end modes and generated occurrence rows.
 - Conflict detection against active occurrences and blackout windows is implemented for single bookings and recurring occurrence generation.
-- Theme values load through `ThemeContext` from `sfsures_appsettings`, with portable bundled SFSU logo and Source Sans 3 defaults as fallback.
+- Theme values load through `ThemeContext` from `sfsures_appsettings`, with portable bundled SFSU logo and fixed Source Sans 3 defaults as fallback.
 - Reservation limits are loaded from `sfsures_appsettings` with code hard caps: max 50 generated occurrences and max 18 weeks per reservation/series span. App Admins may configure more restrictive values only.
+- Admin shell is implemented with a left rail and lazy-loaded admin sections. Settings, Users, and Groups are enabled; Resources, Blackouts, and Reports are still placeholders.
+- App Settings screen is implemented with SFSU preset themes, logo URL, border radius, and reservation limits. It intentionally excludes arbitrary colors, font selection, and settings row-name editing.
+- Users screen is implemented with Office365Users directory search/typeahead, App User creation, selected-user profile photo, disable/reactivate behavior, and per-user group membership checkboxes.
+- Groups screen is implemented with group search, custom group creation, group-centered membership management, hidden auto-generated group keys, and membership count/type details.
+- Group creation and group membership changes write Audit Log rows using `GroupCreated`, `GroupMemberAdded`, and `GroupMemberRemoved`, including hidden group key in `Target Key`.
 - Tier 1 accessibility work is partly implemented: focus trap helper, dialog semantics, visible focus ring, keyboard booking path, and live regions.
 
 Future production work:
 
 - Resource Type dropdown and group-scoped calendar filtering.
 - Resource group-scoping in the booking picker and related UI.
-- Admin screens for resource catalog, users, groups, blackout windows, and app settings/theme picker. The App Settings screen must show the hard maximum beside each configurable reservation limit.
+- Admin screens for resource catalog, blackout windows, and reports. Resource admin should expose Resource `Calendar Color` as palette-only choices.
+- Group editing/deactivation workflow, if admins need to rename or retire custom groups; use `GroupEdited` audit rows if this is added.
+- Broader audit-log coverage for session-open, reservation create/edit/cancel, user create/disable/edit, resource edits, blackout edits, and settings/theme changes.
 - Custom app-owned calendar toolbar so the date range can stay truly centered while Resource Type, view controls, and other controls grow around it.
 - Recurring reservation "cancel future events" workflow.
 - Transactional/server-side hardening for series create/edit/delete if the MVP's sequential Dataverse writes prove too fragile.
-- Lazy-load future admin/settings/report screens once navigation arrives so the calendar bundle stays lean; the current Vite large chunk warning is a baseline metric, not a blocker.
+- Keep future resource, blackout, report, and export screens lazy-loaded so the calendar bundle stays lean; the current Vite large chunk warning is a baseline metric, not a blocker.
 - Reports/export screens and Excel/SharePoint outputs.
 - Full DPRC/WCAG verification, including screen-reader testing and Tier 2/Tier 3 accessibility work.
 - Optional calendar layout follow-up if native scrollbar arrow buttons remain distracting in the Power Apps/browser host.
@@ -175,6 +188,9 @@ Future production work:
 - Secondary and destructive button colors are currently hard-coded semantic CSS; only primary/action branding is consistently theme-driven.
 - Series edit/delete currently uses sequential Dataverse writes, not a true transaction. Keep this accepted MVP limitation visible until a custom API/plugin/app-only backend is in scope.
 - Add a recurring-series "cancel future events" workflow in addition to the implemented occurrence and whole-series actions.
+- Verify group audit writes end-to-end in the published Power Apps runtime with the real Audit Log security role settings.
+- Audit writes currently cover group creation and membership changes only, and failures are surfaced but not queued/retried.
+- Validate Office365Users profile-photo lookup in the published app, especially for users whose stored App User email differs from UPN.
 - Verify `cose-res-demo-sandbox` code-app support and Joe's System Administrator rights there.
 - Confirm production environment custom role creation and System Administrator grant.
 - Run the non-admin Booker test: own reservation write/delete succeeds, peer reservation write/delete returns 403.
