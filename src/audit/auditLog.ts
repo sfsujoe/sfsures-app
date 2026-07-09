@@ -8,6 +8,7 @@ import type {
 
 export const AUDIT_ACTION_TYPES = {
   groupCreated: 997330006,
+  resourceCatalogEdited: 997330007,
   groupMemberAdded: 997330011,
   groupMemberRemoved: 997330012,
 } as const satisfies Record<string, Sfsures_auditlogssfsures_actiontype>
@@ -18,6 +19,7 @@ export const AUDIT_OUTCOMES = {
 } as const satisfies Record<string, Sfsures_auditlogssfsures_outcome>
 
 export const AUDIT_TARGET_TYPES = {
+  resource: 997330001,
   group: 997330003,
 } as const satisfies Record<string, Sfsures_auditlogssfsures_targettype>
 
