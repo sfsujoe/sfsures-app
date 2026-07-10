@@ -432,11 +432,6 @@ export default function GroupsScreen() {
           <h2>Groups</h2>
           <p className={styles.panelMeta}>{groups.length} Groups</p>
         </div>
-        <div className={styles.panelActions}>
-          <button type="button" className={styles.secondaryButton} onClick={() => void loadGroups()}>
-            Refresh
-          </button>
-        </div>
       </div>
 
       {error && (

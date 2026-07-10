@@ -46,6 +46,7 @@ export interface Sfsures_resourcesBase {
   sfsures_name: string;
   sfsures_recordstatus?: Sfsures_resourcessfsures_recordstatus;
   sfsures_resourceid: string;
+  sfsures_resourcephoto?: string;
   "sfsures_ResourceType@odata.bind"?: string;
   statecode: Sfsures_resourcesstatecode;
   statuscode?: Sfsures_resourcesstatuscode;
@@ -67,6 +68,9 @@ export interface Sfsures_resources extends Sfsures_resourcesBase {
   organizationidname: string;
   sfsures_calendarcolorname?: string;
   sfsures_recordstatusname?: string;
+  sfsures_resourcephoto_timestamp?: number;
+  sfsures_resourcephoto_url?: string;
+  sfsures_resourcephotoid?: string;
   sfsures_resourcetypename?: string;
   statecodename?: string;
   statuscodename?: string;
@@ -84,3 +88,6 @@ export interface Sfsures_resources extends Sfsures_resourcesBase {
   sfsures_resourcetype?: object;
   _sfsures_resourcetype_value?: string;
 }
+export type Sfsures_resourcesImageColumnName = 'sfsures_resourcephoto';
+
+export type Sfsures_resourcesUploadColumnName = Sfsures_resourcesImageColumnName;

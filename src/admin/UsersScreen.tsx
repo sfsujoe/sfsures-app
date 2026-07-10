@@ -624,11 +624,6 @@ export default function UsersScreen() {
           <h2>Users</h2>
           <p className={styles.panelMeta}>{users.length} App Users</p>
         </div>
-        <div className={styles.panelActions}>
-          <button type="button" className={styles.secondaryButton} onClick={() => void loadUsers()}>
-            Refresh
-          </button>
-        </div>
       </div>
 
       {error && (

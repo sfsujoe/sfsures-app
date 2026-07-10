@@ -6,7 +6,7 @@
 import type { GetEntityMetadataOptions, EntityMetadata } from '@microsoft/power-apps/data/metadata/dataverse';
 import type { IGetOptions, IGetAllOptions } from '../models/CommonModels';
 import type { IOperationResult } from '@microsoft/power-apps/data';
-import type { Sfsures_resourcesBase, Sfsures_resources } from '../models/Sfsures_resourcesModel';
+import type { Sfsures_resourcesBase, Sfsures_resources, Sfsures_resourcesImageColumnName, Sfsures_resourcesUploadColumnName } from '../models/Sfsures_resourcesModel';
 import { dataSourcesInfo } from '../../../.power/schemas/appschemas/dataSourcesInfo';
 import { getClient } from '@microsoft/power-apps/data';
 
@@ -68,5 +68,37 @@ export class Sfsures_resourcesService {
         },
       },
     });
+  }
+
+  public static async upload(id: string, columnName: Sfsures_resourcesUploadColumnName, file: File, fileDisplayName?: string): Promise<IOperationResult<void>> {
+    const arrayBuffer = await file.arrayBuffer();
+    const data = new Uint8Array(arrayBuffer);
+    const result = await Sfsures_resourcesService.client.uploadFileToRecord(
+      Sfsures_resourcesService.dataSourceName,
+      id,
+      columnName,
+      fileDisplayName || file.name,
+      data,
+    );
+    return result;
+  }
+
+  public static async downloadImage(id: string, columnName: Sfsures_resourcesImageColumnName, fullSize: boolean = false): Promise<IOperationResult<Uint8Array>> {
+    const result = await Sfsures_resourcesService.client.downloadImageFromRecord(
+      Sfsures_resourcesService.dataSourceName,
+      id,
+      columnName,
+      fullSize,
+    );
+    return result;
+  }
+
+  public static async deleteFileOrImage(id: string, columnName: Sfsures_resourcesUploadColumnName): Promise<IOperationResult<void>> {
+    const result = await Sfsures_resourcesService.client.deleteFileOrImageFromRecord(
+      Sfsures_resourcesService.dataSourceName,
+      id,
+      columnName,
+    );
+    return result;
   }
 }

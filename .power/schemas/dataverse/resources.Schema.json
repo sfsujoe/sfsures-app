@@ -306,6 +306,38 @@
           "required": true,
           "x-ms-keyType": "primary"
         },
+        "sfsures_resourcephoto": {
+          "type": "string",
+          "title": "Resource Photo",
+          "x-ms-dataverse-attribute": "sfsures_resourcephoto",
+          "x-ms-dataverse-type": "ImageType",
+          "x-ms-schema-name": "sfsures_ResourcePhoto"
+        },
+        "sfsures_resourcephoto_timestamp": {
+          "type": "string",
+          "title": "sfsures_resourcephoto_timestamp",
+          "x-ms-dataverse-attribute": "sfsures_resourcephoto_timestamp",
+          "x-ms-dataverse-type": "BigIntType",
+          "x-ms-schema-name": "sfsures_ResourcePhoto_Timestamp",
+          "x-ms-read-only": true
+        },
+        "sfsures_resourcephoto_url": {
+          "type": "string",
+          "title": "sfsures_resourcephoto_url",
+          "x-ms-dataverse-attribute": "sfsures_resourcephoto_url",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "sfsures_ResourcePhoto_URL",
+          "x-ms-read-only": true,
+          "maxLength": 200
+        },
+        "sfsures_resourcephotoid": {
+          "type": "string",
+          "title": "sfsures_resourcephotoid",
+          "x-ms-dataverse-attribute": "sfsures_resourcephotoid",
+          "x-ms-dataverse-type": "UniqueidentifierType",
+          "x-ms-schema-name": "sfsures_ResourcePhotoId",
+          "x-ms-read-only": true
+        },
         "sfsures_resourcetype": {
           "type": "string",
           "title": "Resource Type",

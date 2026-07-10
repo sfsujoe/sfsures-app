@@ -2,9 +2,12 @@ import {
   useCallback,
   useEffect,
   useId,
+  lazy,
   useMemo,
   useRef,
+  Suspense,
   useState,
+  type ChangeEvent,
   type FormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react'
@@ -24,6 +27,8 @@ import {
 import { useFocusTrap } from '../a11y/useFocusTrap'
 import styles from './AdminApp.module.css'
 
+const ResourcePhotoCropper = lazy(() => import('./ResourcePhotoCropper'))
+
 interface AdminResourceType {
   resourceTypeId: string
   name: string
@@ -41,6 +46,8 @@ interface AdminResource {
   description: string
   calendarColor: Sfsures_resourcessfsures_calendarcolor
   recordStatus: number
+  photoFullUrl: string | null
+  photoThumbnailUrl: string | null
 }
 
 interface ResourceTypeForm {
@@ -62,11 +69,36 @@ type ResourceDialog =
   | { kind: 'resourceType'; mode: 'create' | 'edit' }
   | { kind: 'resource'; mode: 'create' | 'edit' }
 
+interface PendingResourcePhoto {
+  file: File
+  byteSize: number
+  previewUrl: string
+}
+
+interface ResourcePhotoInfo {
+  photoFullUrl: string | null
+  photoThumbnailUrl: string | null
+}
+
+interface PhotoCropSource {
+  objectUrl: string
+}
+
 const RESOURCE_TYPE_STATUS_ACTIVE = 997330000
 const RESOURCE_TYPE_STATUS_INACTIVE = 997330001
 const RESOURCE_STATUS_ACTIVE = 997330000
 const RESOURCE_STATUS_DISABLED = 997330001
 const DEFAULT_RESOURCE_COLOR = RESOURCE_COLOR_OPTIONS[0].value
+const RESOURCE_PHOTO_COLUMN = 'sfsures_resourcephoto'
+const RESOURCE_PHOTO_URL_COLUMN = `${RESOURCE_PHOTO_COLUMN}_url`
+const RESOURCE_PHOTO_ACCEPT = '.jpg,.jpeg,.png,.gif,.bmp,image/jpeg,image/png,image/gif,image/bmp'
+const RESOURCE_PHOTO_MAX_BYTES = 10 * 1024 * 1024
+const SUPPORTED_RESOURCE_PHOTO_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/bmp',
+])
 
 const EMPTY_RESOURCE_TYPE_FORM: ResourceTypeForm = {
   id: null,
@@ -177,6 +209,72 @@ function resourceReservableLabel(resource: AdminResource): string {
   return 'No'
 }
 
+function resourcePhotoThumbnailSrc(value: unknown): string | null {
+  const base64 = typeof value === 'string' ? value.trim() : ''
+  if (!base64) return null
+
+  if (base64.startsWith('data:')) {
+    return base64
+  }
+
+  return `data:image/jpeg;base64,${base64}`
+}
+
+function resourcePhotoFullUrl(value: unknown): string | null {
+  const url = typeof value === 'string' ? value.trim() : ''
+  if (!url) return null
+
+  return `${url}${url.includes('?') ? '&' : '?'}Full=true`
+}
+
+async function loadResourcePhotoMap(): Promise<Map<string, ResourcePhotoInfo>> {
+  const photoSelectSets = [
+    ['sfsures_resourceid', RESOURCE_PHOTO_COLUMN, RESOURCE_PHOTO_URL_COLUMN],
+    ['sfsures_resourceid', RESOURCE_PHOTO_COLUMN],
+  ]
+  let lastError: unknown = null
+
+  for (const select of photoSelectSets) {
+    try {
+      const result = await Sfsures_resourcesService.getAll({
+        select,
+        orderBy: ['sfsures_name asc'],
+        top: 500,
+      })
+
+      return new Map(
+        ((result.data ?? []) as Array<Sfsures_resources & Record<string, unknown>>).map(
+          (resource) => [
+            resource.sfsures_resourceid,
+            {
+              photoFullUrl: resourcePhotoFullUrl(resource[RESOURCE_PHOTO_URL_COLUMN]),
+              photoThumbnailUrl: resourcePhotoThumbnailSrc(resource[RESOURCE_PHOTO_COLUMN]),
+            },
+          ]
+        )
+      )
+    } catch (err) {
+      lastError = err
+    }
+  }
+
+  console.warn('Resource photo fields could not be loaded:', lastError)
+  return new Map()
+}
+
+function formatBytes(bytes: number): string {
+  const megabytes = bytes / (1024 * 1024)
+  return `${megabytes.toFixed(megabytes >= 10 ? 0 : 1)} MB`
+}
+
+function isSupportedResourcePhoto(file: File): boolean {
+  if (SUPPORTED_RESOURCE_PHOTO_TYPES.has(file.type)) {
+    return true
+  }
+
+  return /\.(jpe?g|png|gif|bmp)$/i.test(file.name)
+}
+
 function resourceTypeSnapshot(resourceType: AdminResourceType | ResourceTypeForm) {
   return {
     resourceTypeId: 'resourceTypeId' in resourceType ? resourceType.resourceTypeId : resourceType.id,
@@ -215,11 +313,13 @@ export default function ResourcesScreen() {
   const colorPickerListboxId = `${colorPickerId}-listbox`
   const dialogTitleId = `${colorPickerId}-dialog-title`
   const resourceListDialogTitleId = `${colorPickerId}-resource-list-title`
+  const resourcePhotoPreviewTitleId = `${colorPickerId}-photo-preview-title`
   const [resourceTypes, setResourceTypes] = useState<AdminResourceType[]>([])
   const [resources, setResources] = useState<AdminResource[]>([])
   const [selectedResourceTypeId, setSelectedResourceTypeId] = useState<string | null>(null)
   const [selectedResourceId, setSelectedResourceId] = useState<string | null>(null)
   const [resourceListResourceTypeId, setResourceListResourceTypeId] = useState<string | null>(null)
+  const [photoPreviewResourceId, setPhotoPreviewResourceId] = useState<string | null>(null)
   const [resourceTypeSearch, setResourceTypeSearch] = useState('')
   const [resourceSearch, setResourceSearch] = useState('')
   const [resourceTypeForm, setResourceTypeForm] = useState<ResourceTypeForm>(EMPTY_RESOURCE_TYPE_FORM)
@@ -231,14 +331,20 @@ export default function ResourcesScreen() {
   const [status, setStatus] = useState('')
   const [activeDialog, setActiveDialog] = useState<ResourceDialog | null>(null)
   const [modalError, setModalError] = useState('')
+  const [pendingResourcePhoto, setPendingResourcePhoto] = useState<PendingResourcePhoto | null>(null)
+  const [photoCropSource, setPhotoCropSource] = useState<PhotoCropSource | null>(null)
+  const [photoPreviewUseThumbnail, setPhotoPreviewUseThumbnail] = useState(false)
   const selectedResourceTypeIdRef = useRef<string | null>(null)
   const selectedResourceIdRef = useRef<string | null>(null)
   const colorPickerRef = useRef<HTMLDivElement | null>(null)
   const dialogRef = useRef<HTMLDivElement | null>(null)
   const resourceListDialogRef = useRef<HTMLDivElement | null>(null)
+  const resourcePhotoInputRef = useRef<HTMLInputElement | null>(null)
+  const resourcePhotoPreviewDialogRef = useRef<HTMLDivElement | null>(null)
   const [colorPickerOpen, setColorPickerOpen] = useState(false)
   useFocusTrap(dialogRef, activeDialog !== null)
   useFocusTrap(resourceListDialogRef, resourceListResourceTypeId !== null)
+  useFocusTrap(resourcePhotoPreviewDialogRef, photoPreviewResourceId !== null)
 
   const loadCatalog = useCallback(async (preferred?: {
     resourceTypeId?: string | null
@@ -248,7 +354,7 @@ export default function ResourcesScreen() {
     setError('')
 
     try {
-      const [resourceTypeResult, resourceResult] = await Promise.all([
+      const [resourceTypeResult, resourceResult, resourcePhotosById] = await Promise.all([
         Sfsures_resourcetypesService.getAll({
           select: [
             'sfsures_resourcetypeid',
@@ -272,6 +378,7 @@ export default function ResourcesScreen() {
           orderBy: ['sfsures_name asc'],
           top: 500,
         }),
+        loadResourcePhotoMap(),
       ])
 
       const loadedResourceTypes = ((resourceTypeResult.data ?? []) as Sfsures_resourcetypes[])
@@ -290,10 +397,11 @@ export default function ResourcesScreen() {
         ])
       )
 
-      const loadedResources = ((resourceResult.data ?? []) as Sfsures_resources[])
+      const loadedResources = ((resourceResult.data ?? []) as Array<Sfsures_resources & Record<string, unknown>>)
         .map((resource) => {
           const resourceTypeId = resource._sfsures_resourcetype_value ?? ''
           const resourceType = resourceTypesById.get(resourceTypeId)
+          const resourcePhoto = resourcePhotosById.get(resource.sfsures_resourceid)
 
           return {
             resourceId: resource.sfsures_resourceid,
@@ -306,6 +414,8 @@ export default function ResourcesScreen() {
             calendarColor:
               resource.sfsures_calendarcolor ?? DEFAULT_RESOURCE_COLOR,
             recordStatus: resource.sfsures_recordstatus ?? RESOURCE_STATUS_ACTIVE,
+            photoFullUrl: resourcePhoto?.photoFullUrl ?? null,
+            photoThumbnailUrl: resourcePhoto?.photoThumbnailUrl ?? null,
           }
         })
         .sort((a, b) =>
@@ -388,6 +498,16 @@ export default function ResourcesScreen() {
     [resources, selectedResourceId]
   )
 
+  const photoPreviewResource = useMemo(
+    () => resources.find((resource) => resource.resourceId === photoPreviewResourceId) ?? null,
+    [photoPreviewResourceId, resources]
+  )
+
+  const photoPreviewSrc =
+    photoPreviewResource && photoPreviewUseThumbnail
+      ? photoPreviewResource.photoThumbnailUrl
+      : photoPreviewResource?.photoFullUrl ?? photoPreviewResource?.photoThumbnailUrl ?? null
+
   const resourceListResourceType = useMemo(
     () =>
       resourceTypes.find(
@@ -429,22 +549,106 @@ export default function ResourcesScreen() {
 
   const activeResourceTypeCount = activeResourceTypes.length
   const reservableResourceCount = resources.filter(isResourceReservable).length
+  const totalResourceCount = resources.length
   const selectedResourceStatusPill = selectedResource
     ? resourceStatusPill(selectedResource)
     : null
-  const selectedResourceReservable = selectedResource
-    ? isResourceReservable(selectedResource)
-    : false
   const selectedResourceColor =
     resourceColorByValue(resourceForm.calendarColor) ?? RESOURCE_COLOR_OPTIONS[0]
   const resourceTypeNameForForm =
     resourceTypes.find((resourceType) => resourceType.resourceTypeId === resourceForm.resourceTypeId)
       ?.name ?? ''
+  const resourceFormPhotoPreviewUrl =
+    pendingResourcePhoto?.previewUrl ??
+    (activeDialog?.kind === 'resource' && activeDialog.mode === 'edit'
+      ? selectedResource?.photoThumbnailUrl ?? null
+      : null)
+
+  useEffect(() => {
+    return () => {
+      if (photoCropSource) {
+        URL.revokeObjectURL(photoCropSource.objectUrl)
+      }
+    }
+  }, [photoCropSource])
+
+  useEffect(() => {
+    return () => {
+      if (pendingResourcePhoto) {
+        URL.revokeObjectURL(pendingResourcePhoto.previewUrl)
+      }
+    }
+  }, [pendingResourcePhoto])
+
+  function clearResourcePhotoDraft() {
+    setPhotoCropSource(null)
+    setPendingResourcePhoto(null)
+    if (resourcePhotoInputRef.current) {
+      resourcePhotoInputRef.current.value = ''
+    }
+  }
+
+  function openResourcePhotoPreview(resource: AdminResource) {
+    if (!resource.photoThumbnailUrl) return
+    setPhotoPreviewResourceId(resource.resourceId)
+    setPhotoPreviewUseThumbnail(false)
+  }
+
+  function closeResourcePhotoPreview() {
+    setPhotoPreviewResourceId(null)
+    setPhotoPreviewUseThumbnail(false)
+  }
+
+  function handleResourcePhotoPreviewKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (event.key !== 'Escape') return
+
+    event.preventDefault()
+    closeResourcePhotoPreview()
+  }
+
+  function handleResourcePhotoButtonClick() {
+    resourcePhotoInputRef.current?.click()
+  }
+
+  function handleResourcePhotoFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+
+    if (!file) return
+
+    if (!isSupportedResourcePhoto(file)) {
+      setModalError('Upload a JPG, PNG, GIF, or BMP image.')
+      return
+    }
+
+    if (file.size > RESOURCE_PHOTO_MAX_BYTES) {
+      setModalError(
+        `Photo is too large. The maximum size for resource photos is ${formatBytes(RESOURCE_PHOTO_MAX_BYTES)}.`
+      )
+      return
+    }
+
+    setModalError('')
+    setPhotoCropSource({
+      objectUrl: URL.createObjectURL(file),
+    })
+  }
+
+  function handleCroppedResourcePhoto(photo: PendingResourcePhoto) {
+    setPendingResourcePhoto(photo)
+    setPhotoCropSource(null)
+    setModalError('')
+  }
+
+  async function uploadResourcePhoto(resourceId: string, file: File) {
+    await Sfsures_resourcesService.upload(resourceId, RESOURCE_PHOTO_COLUMN, file, file.name)
+  }
 
   function closeDialog() {
     setActiveDialog(null)
     setModalError('')
     setColorPickerOpen(false)
+    clearResourcePhotoDraft()
   }
 
   function openCreateResourceTypeDialog() {
@@ -475,6 +679,7 @@ export default function ResourcesScreen() {
     setResourceForm(emptyResourceForm(fallbackResourceTypeId))
     setActiveDialog({ kind: 'resource', mode: 'create' })
     setModalError('')
+    clearResourcePhotoDraft()
     setStatus('')
   }
 
@@ -484,6 +689,7 @@ export default function ResourcesScreen() {
     setActiveDialog({ kind: 'resource', mode: 'edit' })
     setModalError('')
     setColorPickerOpen(false)
+    clearResourcePhotoDraft()
     setStatus('')
   }
 
@@ -712,13 +918,28 @@ export default function ResourcesScreen() {
       let auditWritten = true
       if (resourceForm.id) {
         const beforeResource = selectedResource
-        await Sfsures_resourcesService.update(resourceForm.id, {
+        const changedFields: Record<string, unknown> = {
           sfsures_name: name,
           'sfsures_ResourceType@odata.bind': `/sfsures_resourcetypes(${resourceTypeId})`,
           sfsures_location: location || null,
           sfsures_description: description || null,
           sfsures_calendarcolor: resourceForm.calendarColor,
-        } as unknown as Parameters<typeof Sfsures_resourcesService.update>[1])
+        }
+        let photoUploaded = true
+
+        await Sfsures_resourcesService.update(
+          resourceForm.id,
+          changedFields as unknown as Parameters<typeof Sfsures_resourcesService.update>[1]
+        )
+
+        if (pendingResourcePhoto) {
+          try {
+            await uploadResourcePhoto(resourceForm.id, pendingResourcePhoto.file)
+          } catch (photoErr) {
+            photoUploaded = false
+            console.error('Upload resource photo failed:', photoErr)
+          }
+        }
 
         auditWritten = await writeAuditLog({
           actor: currentUser,
@@ -743,10 +964,15 @@ export default function ResourcesScreen() {
             source: 'Admin Resources screen',
             catalogEntity: 'Resource',
             operation: 'update',
+            photoUpdated: Boolean(pendingResourcePhoto) && photoUploaded,
           },
         })
         setStatus(
-          auditWritten ? 'Resource saved.' : 'Resource saved. Audit log could not be written.'
+          photoUploaded
+            ? auditWritten
+              ? 'Resource saved.'
+              : 'Resource saved. Audit log could not be written.'
+            : 'Resource saved, but the photo could not be uploaded. Try adding the photo again from Edit Resource.'
         )
         await loadCatalog({ resourceId: resourceForm.id })
       } else {
@@ -762,6 +988,21 @@ export default function ResourcesScreen() {
         } as unknown as Parameters<typeof Sfsures_resourcesService.create>[0])
 
         const createdId = created.data?.sfsures_resourceid ?? null
+        let photoUploaded = true
+
+        if (pendingResourcePhoto) {
+          if (createdId) {
+            try {
+              await uploadResourcePhoto(createdId, pendingResourcePhoto.file)
+            } catch (photoErr) {
+              photoUploaded = false
+              console.error('Upload resource photo failed:', photoErr)
+            }
+          } else {
+            photoUploaded = false
+          }
+        }
+
         auditWritten = await writeAuditLog({
           actor: currentUser,
           actionType: AUDIT_ACTION_TYPES.resourceCatalogEdited,
@@ -778,15 +1019,21 @@ export default function ResourcesScreen() {
             calendarColor: resourceForm.calendarColor,
             calendarColorName: selectedResourceColor?.label ?? null,
             recordStatus: RESOURCE_STATUS_ACTIVE,
+            photoUpdated: Boolean(pendingResourcePhoto) && photoUploaded,
           },
           details: {
             source: 'Admin Resources screen',
             catalogEntity: 'Resource',
             operation: 'create',
+            photoUpdated: Boolean(pendingResourcePhoto) && photoUploaded,
           },
         })
         setStatus(
-          auditWritten ? 'Resource created.' : 'Resource created. Audit log could not be written.'
+          photoUploaded
+            ? auditWritten
+              ? 'Resource created.'
+              : 'Resource created. Audit log could not be written.'
+            : 'Resource created, but the photo could not be uploaded. Try adding the photo from Edit Resource.'
         )
         await loadCatalog({ resourceId: createdId })
       }
@@ -869,20 +1116,6 @@ export default function ResourcesScreen() {
 
   return (
     <section className={styles.settingsPanel}>
-      <div className={styles.panelToolbar}>
-        <div>
-          <h2>Resources</h2>
-          <p className={styles.panelMeta}>
-            {activeResourceTypeCount} Active Types / {reservableResourceCount} Reservable Resources
-          </p>
-        </div>
-        <div className={styles.panelActions}>
-          <button type="button" className={styles.secondaryButton} onClick={() => void loadCatalog()}>
-            Refresh
-          </button>
-        </div>
-      </div>
-
       {error && (
         <p className={styles.errorBanner} role="alert">
           {error}
@@ -903,7 +1136,12 @@ export default function ResourcesScreen() {
         <div className={styles.catalogStack}>
           <section className={styles.formSection} aria-labelledby="resource-types-heading">
             <div className={styles.sectionHeader}>
-              <h3 id="resource-types-heading">Resource Types</h3>
+              <div>
+                <h3 id="resource-types-heading">Resource Types</h3>
+                <p className={styles.sectionMeta}>
+                  {activeResourceTypeCount} active / {resourceTypes.length} total
+                </p>
+              </div>
               <button
                 type="button"
                 className={styles.primaryButton}
@@ -1038,7 +1276,12 @@ export default function ResourcesScreen() {
             aria-labelledby="resources-heading"
           >
             <div className={styles.sectionHeader}>
-              <h3 id="resources-heading">Resources</h3>
+              <div>
+                <h3 id="resources-heading">Resources</h3>
+                <p className={styles.sectionMeta}>
+                  {reservableResourceCount} reservable / {totalResourceCount} total
+                </p>
+              </div>
               <button
                 type="button"
                 className={styles.primaryButton}
@@ -1118,6 +1361,23 @@ export default function ResourcesScreen() {
                       )}
                     </div>
 
+                    <div className={styles.resourcePhotoDetail}>
+                      {selectedResource.photoThumbnailUrl ? (
+                        <button
+                          type="button"
+                          className={styles.resourcePhotoThumbButton}
+                          onClick={() => openResourcePhotoPreview(selectedResource)}
+                        >
+                          <img
+                            src={selectedResource.photoThumbnailUrl}
+                            alt={`${selectedResource.name} resource photo`}
+                          />
+                        </button>
+                      ) : (
+                        <div className={styles.resourcePhotoPlaceholder}>No photo uploaded</div>
+                      )}
+                    </div>
+
                     <dl className={styles.detailList}>
                       <div>
                         <dt>Type</dt>
@@ -1129,13 +1389,7 @@ export default function ResourcesScreen() {
                       </div>
                       <div>
                         <dt>Reservable</dt>
-                        <dd>
-                          {selectedResourceReservable
-                            ? 'Yes'
-                            : selectedResource.recordStatus === RESOURCE_STATUS_DISABLED
-                              ? 'No - resource disabled'
-                              : 'No - resource type inactive'}
-                        </dd>
+                        <dd>{resourceReservableLabel(selectedResource)}</dd>
                       </div>
                       <div>
                         <dt>Color</dt>
@@ -1227,6 +1481,54 @@ export default function ResourcesScreen() {
                   type="button"
                   className={styles.primaryButton}
                   onClick={closeResourceTypeResourcesDialog}
+                >
+                  Done
+                </button>
+              </div>
+            </footer>
+          </div>
+        </div>
+      )}
+
+      {photoPreviewResource && photoPreviewSrc && (
+        <div className={styles.modalBackdrop}>
+          <div
+            ref={resourcePhotoPreviewDialogRef}
+            className={`${styles.adminModal} ${styles.resourcePhotoPreviewModal}`}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={resourcePhotoPreviewTitleId}
+            tabIndex={-1}
+            onKeyDown={handleResourcePhotoPreviewKeyDown}
+          >
+            <header className={styles.modalHeader}>
+              <div>
+                <p className={styles.detailLabel}>Resource Photo</p>
+                <h2 id={resourcePhotoPreviewTitleId}>{photoPreviewResource.name}</h2>
+              </div>
+            </header>
+
+            <div className={styles.resourcePhotoPreviewBody}>
+              <img
+                src={photoPreviewSrc}
+                alt={`${photoPreviewResource.name} resource photo`}
+                onError={() => {
+                  if (!photoPreviewUseThumbnail) {
+                    setPhotoPreviewUseThumbnail(true)
+                  }
+                }}
+              />
+            </div>
+
+            <footer className={styles.modalFooter}>
+              <div className={styles.modalFooterStatus}>
+                <span>{photoPreviewUseThumbnail ? 'Showing thumbnail preview' : 'Showing photo'}</span>
+              </div>
+              <div className={styles.modalFooterActions}>
+                <button
+                  type="button"
+                  className={styles.primaryButton}
+                  onClick={closeResourcePhotoPreview}
                 >
                   Done
                 </button>
@@ -1393,6 +1695,67 @@ export default function ResourcesScreen() {
                       }
                     />
                   </label>
+
+                  <div className={styles.field}>
+                    <span>Resource photo</span>
+                    <div className={styles.resourcePhotoEditor}>
+                      {resourceFormPhotoPreviewUrl ? (
+                        <img
+                          className={styles.resourcePhotoFormPreview}
+                          src={resourceFormPhotoPreviewUrl}
+                          alt="Selected resource preview"
+                        />
+                      ) : (
+                        <div className={styles.resourcePhotoFormPlaceholder}>
+                          No photo selected
+                        </div>
+                      )}
+
+                      <div className={styles.resourcePhotoEditorActions}>
+                        <button
+                          type="button"
+                          className={styles.secondaryButton}
+                          onClick={handleResourcePhotoButtonClick}
+                        >
+                          {resourceFormPhotoPreviewUrl ? 'Change Photo' : 'Upload Photo'}
+                        </button>
+                        <p className={styles.fieldHint}>
+                          JPG, PNG, GIF, or BMP. Max {formatBytes(RESOURCE_PHOTO_MAX_BYTES)}.
+                        </p>
+                      </div>
+
+                      <input
+                        ref={resourcePhotoInputRef}
+                        type="file"
+                        accept={RESOURCE_PHOTO_ACCEPT}
+                        className={styles.srOnly}
+                        onChange={handleResourcePhotoFileChange}
+                      />
+                    </div>
+
+                    {pendingResourcePhoto && (
+                      <p className={styles.fieldHint}>
+                        Cropped photo ready ({formatBytes(pendingResourcePhoto.byteSize)}). It
+                        will upload when you save this resource.
+                      </p>
+                    )}
+
+                    {photoCropSource && (
+                      <Suspense
+                        fallback={
+                          <div className={styles.inlineLoading} role="status">
+                            Loading cropper...
+                          </div>
+                        }
+                      >
+                        <ResourcePhotoCropper
+                          imageUrl={photoCropSource.objectUrl}
+                          onCancel={() => setPhotoCropSource(null)}
+                          onUsePhoto={handleCroppedResourcePhoto}
+                        />
+                      </Suspense>
+                    )}
+                  </div>
 
                   <div className={styles.field}>
                     <span id={colorPickerLabelId}>Calendar color</span>
