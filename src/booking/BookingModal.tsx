@@ -5,7 +5,7 @@
  * CalendarScreen's handleDateSelect with pre-filled start/end times.
  *
  * Flow:
- *   1. User picks a resource from the dropdown (active resources loaded on mount)
+ *   1. User picks a resource from the dropdown (reservable resources loaded on mount)
  *   2. User adjusts start/end if needed
  *   3. On "Reserve": conflict detection runs first (delegable overlap query against
  *      active occurrences + blackout windows for the selected resource)
@@ -17,7 +17,7 @@
  * record, populated by AccessGate on startup). Series is null (single reservation).
  *
  * Resource-scope check (group membership) is TODO — for now the picker shows
- * all active resources. The Dataverse security role is still the real boundary;
+ * reservable resources. The Dataverse security role is still the real boundary;
  * this is a UX filter, not a security gate.
  *
  * Accessibility:
@@ -32,7 +32,10 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type { Sfsures_resources } from '../generated/models/Sfsures_resourcesModel'
+import type { Sfsures_resourcetypes } from '../generated/models/Sfsures_resourcetypesModel'
 import { Sfsures_resourcesService } from '../generated/services/Sfsures_resourcesService'
+import { Sfsures_resourcetypesService } from '../generated/services/Sfsures_resourcetypesService'
 import { Sfsures_reservationoccurrencesService } from '../generated/services/Sfsures_reservationoccurrencesService'
 import { Sfsures_reservationseriesesService } from '../generated/services/Sfsures_reservationseriesesService'
 import { Sfsures_blackoutwindowsService } from '../generated/services/Sfsures_blackoutwindowsService'
@@ -125,6 +128,7 @@ const MS_PER_WEEK = 7 * 24 * 60 * 60 * 1000
 const RESERVATION_COMMENTS_FIELD = 'sfsures_comments'
 const RECORD_STATUS_ACTIVE = 997330000
 const RECORD_STATUS_CANCELLED = 997330001
+const RESOURCE_TYPE_STATUS_ACTIVE = 997330000
 const SERIES_FREQUENCY = {
   daily: 997330000,
   weekly: 997330001,
@@ -541,6 +545,9 @@ export function BookingModal({ start, end, initialReservation, initialSeries, on
   const [error, setError] = useState('')
   const [conflicts, setConflicts] = useState<ConflictInfo[]>([])
 
+  const selectedResourceIsReservable = resources.some(
+    (resource) => resource.id === selectedResourceId
+  )
   const selectedResourceName =
     resources.find((resource) => resource.id === selectedResourceId)?.name ?? 'Selected resource'
   const successTitle =
@@ -569,23 +576,43 @@ export function BookingModal({ start, end, initialReservation, initialSeries, on
     return () => window.clearTimeout(timer)
   }, [mode, successKind])
 
-  // ---- Load active resources on mount ----
+  // ---- Load reservable resources on mount ----
   useEffect(() => {
     const load = async () => {
       try {
         // TODO: filter by the user's group resource access (junction tables).
-        // For now, show all active resources — the Dataverse role is the real gate.
-        const result = await Sfsures_resourcesService.getAll({
-          select: ['sfsures_resourceid', 'sfsures_name', 'sfsures_recordstatus'],
-          filter: 'sfsures_recordstatus eq 997330000', // Active
-          orderBy: ['sfsures_name asc'],
-          top: 200,
-        })
+        // For now, show all active resources whose Resource Type is active.
+        const [resourceTypeResult, resourceResult] = await Promise.all([
+          Sfsures_resourcetypesService.getAll({
+            select: ['sfsures_resourcetypeid', 'sfsures_status'],
+            filter: `sfsures_status eq ${RESOURCE_TYPE_STATUS_ACTIVE}`,
+            top: 500,
+          }),
+          Sfsures_resourcesService.getAll({
+            select: [
+              'sfsures_resourceid',
+              'sfsures_name',
+              'sfsures_recordstatus',
+              '_sfsures_resourcetype_value',
+            ],
+            filter: `sfsures_recordstatus eq ${RECORD_STATUS_ACTIVE}`,
+            orderBy: ['sfsures_name asc'],
+            top: 500,
+          }),
+        ])
 
-        const opts: ResourceOption[] = (result.data ?? []).map((r) => ({
-          id: r.sfsures_resourceid,
-          name: r.sfsures_name ?? 'Unnamed',
-        }))
+        const activeResourceTypeIds = new Set(
+          ((resourceTypeResult.data ?? []) as Sfsures_resourcetypes[])
+            .map((resourceType) => resourceType.sfsures_resourcetypeid)
+            .filter((id): id is string => typeof id === 'string' && id.length > 0)
+        )
+
+        const opts: ResourceOption[] = ((resourceResult.data ?? []) as Sfsures_resources[])
+          .filter((resource) => activeResourceTypeIds.has(resource._sfsures_resourcetype_value ?? ''))
+          .map((resource) => ({
+            id: resource.sfsures_resourceid,
+            name: resource.sfsures_name ?? 'Unnamed',
+          }))
 
         setResources(opts)
 
@@ -656,6 +683,11 @@ export function BookingModal({ start, end, initialReservation, initialSeries, on
     // --- Validate inputs ---
     if (!selectedResourceId) {
       setError('Select a resource.')
+      return
+    }
+
+    if (!selectedResourceIsReservable) {
+      setError('Choose an active resource whose Resource Type is active.')
       return
     }
 
@@ -1007,6 +1039,7 @@ export function BookingModal({ start, end, initialReservation, initialSeries, on
     }
   }, [
     selectedResourceId,
+    selectedResourceIsReservable,
     startStr,
     endStr,
     comments,
@@ -1037,7 +1070,7 @@ export function BookingModal({ start, end, initialReservation, initialSeries, on
   }, [onClose])
 
   // ---- Render ----
-  const canSubmit = !!selectedResourceId && !!startStr && !!endStr && !saving
+  const canSubmit = selectedResourceIsReservable && !!startStr && !!endStr && !saving && !resourcesLoading
   const submitLabel = isSeriesEdit
     ? 'Save Series'
     : saveMode === 'edit'
@@ -1171,7 +1204,7 @@ export function BookingModal({ start, end, initialReservation, initialSeries, on
                 </p>
               ) : resources.length === 0 ? (
                 <p className={styles.resourcesLoading}>
-                  No active resources found. Contact your administrator.
+                  No reservable resources found. Contact your administrator.
                 </p>
               ) : (
                 <select
@@ -1184,6 +1217,11 @@ export function BookingModal({ start, end, initialReservation, initialSeries, on
                     setError('')
                   }}
                 >
+                  {selectedResourceId && !selectedResourceIsReservable && (
+                    <option value={selectedResourceId} disabled>
+                      Current resource is not reservable
+                    </option>
+                  )}
                   <option value="">Select a resource…</option>
                   {resources.map((r) => (
                     <option key={r.id} value={r.id}>
@@ -1191,6 +1229,12 @@ export function BookingModal({ start, end, initialReservation, initialSeries, on
                     </option>
                   ))}
                 </select>
+              )}
+              {selectedResourceId && !selectedResourceIsReservable && !resourcesLoading && (
+                <p className={styles.limitHint}>
+                  This resource is not currently reservable because it is disabled or its
+                  Resource Type is inactive.
+                </p>
               )}
             </div>
 

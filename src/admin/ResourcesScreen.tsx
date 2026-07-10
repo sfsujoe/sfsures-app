@@ -36,6 +36,7 @@ interface AdminResource {
   name: string
   resourceTypeId: string
   resourceTypeName: string
+  resourceTypeStatus: number | null
   location: string
   description: string
   calendarColor: Sfsures_resourcessfsures_calendarcolor
@@ -132,6 +133,50 @@ function resourceMatchesSearch(resource: AdminResource, search: string): boolean
   ].some((value) => value.toLowerCase().includes(normalizedSearch))
 }
 
+function isResourceTypeActive(status: number | null | undefined): boolean {
+  return status === RESOURCE_TYPE_STATUS_ACTIVE
+}
+
+function isResourceReservable(
+  resource: Pick<AdminResource, 'recordStatus' | 'resourceTypeStatus'>
+): boolean {
+  return (
+    resource.recordStatus === RESOURCE_STATUS_ACTIVE &&
+    isResourceTypeActive(resource.resourceTypeStatus)
+  )
+}
+
+function resourceStatusPill(resource: AdminResource): { className: string; label: string } {
+  if (resource.recordStatus === RESOURCE_STATUS_DISABLED) {
+    return { className: `${styles.statusPill} ${styles.statusPillDisabled}`, label: 'Disabled' }
+  }
+
+  if (!isResourceTypeActive(resource.resourceTypeStatus)) {
+    return {
+      className: `${styles.statusPill} ${styles.statusPillWarning}`,
+      label: 'Active, Type Inactive',
+    }
+  }
+
+  return { className: styles.statusPill, label: 'Active' }
+}
+
+function resourceReservableLabel(resource: AdminResource): string {
+  if (isResourceReservable(resource)) {
+    return 'Yes'
+  }
+
+  if (resource.recordStatus === RESOURCE_STATUS_DISABLED) {
+    return 'No - resource disabled'
+  }
+
+  if (!isResourceTypeActive(resource.resourceTypeStatus)) {
+    return 'No - resource type inactive'
+  }
+
+  return 'No'
+}
+
 function resourceTypeSnapshot(resourceType: AdminResourceType | ResourceTypeForm) {
   return {
     resourceTypeId: 'resourceTypeId' in resourceType ? resourceType.resourceTypeId : resourceType.id,
@@ -150,11 +195,16 @@ function resourceSnapshot(resource: AdminResource | ResourceForm, resourceTypeNa
     resourceTypeId: resource.resourceTypeId,
     resourceTypeName:
       resourceTypeName ?? ('resourceTypeName' in resource ? resource.resourceTypeName : undefined),
+    resourceTypeStatus: 'resourceTypeStatus' in resource ? resource.resourceTypeStatus : undefined,
     location: resource.location || null,
     description: resource.description || null,
     calendarColor: resource.calendarColor,
     calendarColorName: color?.label ?? null,
     recordStatus: 'recordStatus' in resource ? resource.recordStatus : RESOURCE_STATUS_ACTIVE,
+    reservable:
+      'recordStatus' in resource && 'resourceTypeStatus' in resource
+        ? isResourceReservable(resource)
+        : undefined,
   }
 }
 
@@ -164,10 +214,12 @@ export default function ResourcesScreen() {
   const colorPickerLabelId = `${colorPickerId}-label`
   const colorPickerListboxId = `${colorPickerId}-listbox`
   const dialogTitleId = `${colorPickerId}-dialog-title`
+  const resourceListDialogTitleId = `${colorPickerId}-resource-list-title`
   const [resourceTypes, setResourceTypes] = useState<AdminResourceType[]>([])
   const [resources, setResources] = useState<AdminResource[]>([])
   const [selectedResourceTypeId, setSelectedResourceTypeId] = useState<string | null>(null)
   const [selectedResourceId, setSelectedResourceId] = useState<string | null>(null)
+  const [resourceListResourceTypeId, setResourceListResourceTypeId] = useState<string | null>(null)
   const [resourceTypeSearch, setResourceTypeSearch] = useState('')
   const [resourceSearch, setResourceSearch] = useState('')
   const [resourceTypeForm, setResourceTypeForm] = useState<ResourceTypeForm>(EMPTY_RESOURCE_TYPE_FORM)
@@ -183,8 +235,10 @@ export default function ResourcesScreen() {
   const selectedResourceIdRef = useRef<string | null>(null)
   const colorPickerRef = useRef<HTMLDivElement | null>(null)
   const dialogRef = useRef<HTMLDivElement | null>(null)
+  const resourceListDialogRef = useRef<HTMLDivElement | null>(null)
   const [colorPickerOpen, setColorPickerOpen] = useState(false)
   useFocusTrap(dialogRef, activeDialog !== null)
+  useFocusTrap(resourceListDialogRef, resourceListResourceTypeId !== null)
 
   const loadCatalog = useCallback(async (preferred?: {
     resourceTypeId?: string | null
@@ -246,6 +300,7 @@ export default function ResourcesScreen() {
             name: resource.sfsures_name,
             resourceTypeId,
             resourceTypeName: resourceType?.name ?? 'Unassigned',
+            resourceTypeStatus: resourceType?.status ?? null,
             location: resource.sfsures_location ?? '',
             description: resource.sfsures_description ?? '',
             calendarColor:
@@ -333,6 +388,22 @@ export default function ResourcesScreen() {
     [resources, selectedResourceId]
   )
 
+  const resourceListResourceType = useMemo(
+    () =>
+      resourceTypes.find(
+        (resourceType) => resourceType.resourceTypeId === resourceListResourceTypeId
+      ) ?? null,
+    [resourceListResourceTypeId, resourceTypes]
+  )
+
+  const resourceListResources = useMemo(
+    () =>
+      resourceListResourceTypeId
+        ? resources.filter((resource) => resource.resourceTypeId === resourceListResourceTypeId)
+        : [],
+    [resourceListResourceTypeId, resources]
+  )
+
   const activeResourceTypes = useMemo(
     () =>
       resourceTypes.filter(
@@ -357,9 +428,13 @@ export default function ResourcesScreen() {
   )
 
   const activeResourceTypeCount = activeResourceTypes.length
-  const activeResourceCount = resources.filter(
-    (resource) => resource.recordStatus === RESOURCE_STATUS_ACTIVE
-  ).length
+  const reservableResourceCount = resources.filter(isResourceReservable).length
+  const selectedResourceStatusPill = selectedResource
+    ? resourceStatusPill(selectedResource)
+    : null
+  const selectedResourceReservable = selectedResource
+    ? isResourceReservable(selectedResource)
+    : false
   const selectedResourceColor =
     resourceColorByValue(resourceForm.calendarColor) ?? RESOURCE_COLOR_OPTIONS[0]
   const resourceTypeNameForForm =
@@ -385,6 +460,15 @@ export default function ResourcesScreen() {
     setActiveDialog({ kind: 'resourceType', mode: 'edit' })
     setModalError('')
     setStatus('')
+  }
+
+  function openResourceTypeResourcesDialog() {
+    if (!selectedResourceType) return
+    setResourceListResourceTypeId(selectedResourceType.resourceTypeId)
+  }
+
+  function closeResourceTypeResourcesDialog() {
+    setResourceListResourceTypeId(null)
   }
 
   function openCreateResourceDialog() {
@@ -442,6 +526,13 @@ export default function ResourcesScreen() {
     }
 
     closeDialog()
+  }
+
+  function handleResourceListDialogKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (event.key !== 'Escape') return
+
+    event.preventDefault()
+    closeResourceTypeResourcesDialog()
   }
 
   async function handleSaveResourceType(event: FormEvent<HTMLFormElement>) {
@@ -782,7 +873,7 @@ export default function ResourcesScreen() {
         <div>
           <h2>Resources</h2>
           <p className={styles.panelMeta}>
-            {activeResourceTypeCount} Active Types / {activeResourceCount} Active Resources
+            {activeResourceTypeCount} Active Types / {reservableResourceCount} Reservable Resources
           </p>
         </div>
         <div className={styles.panelActions}>
@@ -921,6 +1012,13 @@ export default function ResourcesScreen() {
                     <div className={styles.detailActions}>
                       <button
                         type="button"
+                        className={styles.secondaryButton}
+                        onClick={openResourceTypeResourcesDialog}
+                      >
+                        Show Resources
+                      </button>
+                      <button
+                        type="button"
                         className={styles.primaryButton}
                         onClick={openEditResourceTypeDialog}
                       >
@@ -972,6 +1070,7 @@ export default function ResourcesScreen() {
                   ) : (
                     filteredResources.map((resource) => {
                       const color = resourceColorByValue(resource.calendarColor)
+                      const statusPill = resourceStatusPill(resource)
 
                       return (
                         <button
@@ -996,17 +1095,7 @@ export default function ResourcesScreen() {
                             {resource.resourceTypeName}
                             {resource.location ? ` / ${resource.location}` : ''}
                           </span>
-                          <span
-                            className={
-                              resource.recordStatus === RESOURCE_STATUS_DISABLED
-                                ? `${styles.statusPill} ${styles.statusPillDisabled}`
-                                : styles.statusPill
-                            }
-                          >
-                            {resource.recordStatus === RESOURCE_STATUS_DISABLED
-                              ? 'Disabled'
-                              : 'Active'}
-                          </span>
+                          <span className={statusPill.className}>{statusPill.label}</span>
                         </button>
                       )
                     })
@@ -1022,17 +1111,11 @@ export default function ResourcesScreen() {
                         <p className={styles.detailLabel}>Resource</p>
                         <h3>{selectedResource.name}</h3>
                       </div>
-                      <span
-                        className={
-                          selectedResource.recordStatus === RESOURCE_STATUS_DISABLED
-                            ? `${styles.statusPill} ${styles.statusPillDisabled}`
-                            : styles.statusPill
-                        }
-                      >
-                        {selectedResource.recordStatus === RESOURCE_STATUS_DISABLED
-                          ? 'Disabled'
-                          : 'Active'}
-                      </span>
+                      {selectedResourceStatusPill && (
+                        <span className={selectedResourceStatusPill.className}>
+                          {selectedResourceStatusPill.label}
+                        </span>
+                      )}
                     </div>
 
                     <dl className={styles.detailList}>
@@ -1043,6 +1126,16 @@ export default function ResourcesScreen() {
                       <div>
                         <dt>Location</dt>
                         <dd>{selectedResource.location || 'Unavailable'}</dd>
+                      </div>
+                      <div>
+                        <dt>Reservable</dt>
+                        <dd>
+                          {selectedResourceReservable
+                            ? 'Yes'
+                            : selectedResource.recordStatus === RESOURCE_STATUS_DISABLED
+                              ? 'No - resource disabled'
+                              : 'No - resource type inactive'}
+                        </dd>
                       </div>
                       <div>
                         <dt>Color</dt>
@@ -1070,6 +1163,76 @@ export default function ResourcesScreen() {
               </div>
             </div>
           </section>
+        </div>
+      )}
+
+      {resourceListResourceType && (
+        <div className={styles.modalBackdrop}>
+          <div
+            ref={resourceListDialogRef}
+            className={`${styles.adminModal} ${styles.resourceListModal}`}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={resourceListDialogTitleId}
+            tabIndex={-1}
+            onKeyDown={handleResourceListDialogKeyDown}
+          >
+            <header className={styles.modalHeader}>
+              <div>
+                <p className={styles.detailLabel}>Resource Type Resources</p>
+                <h2 id={resourceListDialogTitleId}>{resourceListResourceType.name}</h2>
+              </div>
+            </header>
+
+            <div className={styles.modalBody}>
+              {resourceListResources.length === 0 ? (
+                <p className={styles.emptyState}>No resources have this Resource Type.</p>
+              ) : (
+                <div className={styles.resourceTypeResourceTableWrap}>
+                  <table className={styles.resourceTypeResourceTable}>
+                    <thead>
+                      <tr>
+                        <th scope="col">Resource Name</th>
+                        <th scope="col">Location</th>
+                        <th scope="col">Reservable Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {resourceListResources.map((resource) => (
+                        <tr key={resource.resourceId}>
+                          <td>
+                            <span className={styles.resourceTypeResourceName}>
+                              {resource.name}
+                            </span>
+                          </td>
+                          <td>{resource.location || 'Unavailable'}</td>
+                          <td>{resourceReservableLabel(resource)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            <footer className={styles.modalFooter}>
+              <div className={styles.modalFooterStatus}>
+                <span>
+                  {resourceListResources.length}{' '}
+                  {resourceListResources.length === 1 ? 'resource' : 'resources'}
+                </span>
+              </div>
+              <div className={styles.modalFooterActions}>
+                <button
+                  type="button"
+                  className={styles.primaryButton}
+                  onClick={closeResourceTypeResourcesDialog}
+                >
+                  Done
+                </button>
+              </div>
+            </footer>
+          </div>
         </div>
       )}
 

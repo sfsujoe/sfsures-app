@@ -490,7 +490,8 @@
   gap: 0.375rem;
   max-height: min(44dvh, 28rem);
   overflow: auto;
-  padding-right: 0.25rem;
+  padding: 0.375rem;
+  scroll-padding: 0.375rem;
 }
 
 .catalogListItem {
@@ -702,6 +703,10 @@
   max-height: min(42dvh, 18rem);
 }
 
+.resourceListModal {
+  width: min(100%, 46rem);
+}
+
 .adminModal:focus {
   outline: none;
 }
@@ -754,6 +759,52 @@
 
 .modalFooterActions {
   justify-content: flex-end;
+}
+
+.resourceTypeResourceTableWrap {
+  max-height: min(52dvh, 28rem);
+  overflow: auto;
+  border: 1px solid #e5e5e5;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.resourceTypeResourceTable {
+  width: 100%;
+  min-width: 34rem;
+  border-collapse: separate;
+  border-spacing: 0;
+  color: #1a1a1a;
+  font-size: 0.875rem;
+}
+
+.resourceTypeResourceTable th,
+.resourceTypeResourceTable td {
+  border-bottom: 1px solid #eeeeee;
+  padding: 0.625rem 0.75rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.resourceTypeResourceTable th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #f8f8f8;
+  color: #444444;
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.resourceTypeResourceTable tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.resourceTypeResourceName {
+  display: inline-block;
+  color: #1a1a1a;
+  font-weight: 800;
+  overflow-wrap: anywhere;
 }
 
 .directorySearchField {
@@ -945,6 +996,12 @@
   border-color: #d6d3d1;
   background: #f5f5f4;
   color: #57534e;
+}
+
+.statusPillWarning {
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #92400e;
 }
 
 .userDetailPane,
