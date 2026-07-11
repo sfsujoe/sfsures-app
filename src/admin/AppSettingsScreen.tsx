@@ -9,8 +9,8 @@ import {
   SFSU_DEFAULT_THEME,
   SFSU_THEME_PRESETS,
   themePresetByName,
-  useTheme,
-} from '../theme/ThemeContext'
+} from '../theme/themeConfig'
+import { useTheme } from '../theme/ThemeContext'
 import styles from './AdminApp.module.css'
 
 interface SettingsForm {

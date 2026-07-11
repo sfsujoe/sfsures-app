@@ -12,7 +12,8 @@
  */
 
 import { lazy, Suspense, useEffect, useState } from 'react'
-import { ThemeProvider, useTheme } from './theme/ThemeContext'
+import { useTheme } from './theme/ThemeContext'
+import { ThemeProvider } from './theme/ThemeProvider'
 import { AccessGate } from './auth/AccessGate'
 import { useCurrentUser } from './auth/UserContext'
 import { CalendarScreen } from './calendar/CalendarScreen'
@@ -52,12 +53,6 @@ function ThemeCSSVars() {
 function AppRoutes() {
   const currentUser = useCurrentUser()
   const [activeScreen, setActiveScreen] = useState<ActiveScreen>('calendar')
-
-  useEffect(() => {
-    if (activeScreen === 'admin' && currentUser?.isAppAdmin !== true) {
-      setActiveScreen('calendar')
-    }
-  }, [activeScreen, currentUser?.isAppAdmin])
 
   if (activeScreen === 'admin' && currentUser?.isAppAdmin) {
     return (

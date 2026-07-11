@@ -113,9 +113,6 @@ export default function GroupsScreen() {
   const [status, setStatus] = useState('')
 
   const loadGroups = useCallback(async () => {
-    setLoadStatus('loading')
-    setError('')
-
     try {
       const [groupResult, userResult, assignmentResult] = await Promise.all([
         Sfsures_groupsService.getAll({
@@ -196,6 +193,7 @@ export default function GroupsScreen() {
           ? current
           : loadedGroups[0]?.groupId ?? null
       )
+      setError('')
       setLoadStatus('ready')
     } catch (err) {
       console.error('Groups admin load failed:', err)
@@ -205,8 +203,14 @@ export default function GroupsScreen() {
   }, [])
 
   useEffect(() => {
-    void loadGroups()
+    queueMicrotask(() => void loadGroups())
   }, [loadGroups])
+
+  function handleRetryLoadGroups() {
+    setLoadStatus('loading')
+    setError('')
+    void loadGroups()
+  }
 
   const selectedGroup = useMemo(
     () => groups.find((group) => group.groupId === selectedGroupId) ?? null,
@@ -447,7 +451,7 @@ export default function GroupsScreen() {
       )}
 
       {loadStatus === 'error' ? (
-        <button type="button" className={styles.primaryButton} onClick={() => void loadGroups()}>
+        <button type="button" className={styles.primaryButton} onClick={handleRetryLoadGroups}>
           Retry
         </button>
       ) : (

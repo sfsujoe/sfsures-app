@@ -92,6 +92,12 @@ interface ReservationOwnerDetails {
   photoUrl: string | null
 }
 
+interface OwnerLookupResult {
+  appUserId: string
+  status: 'ready' | 'unavailable'
+  details: ReservationOwnerDetails | null
+}
+
 type OwnerLoadStatus = 'idle' | 'loading' | 'ready' | 'unavailable'
 type DeleteConfirmMode = 'occurrence' | 'series'
 
@@ -287,12 +293,10 @@ export function CalendarScreen({ onOpenAdmin }: CalendarScreenProps) {
   const [deletingReservation, setDeletingReservation] = useState(false)
   const [loadingSeriesEdit, setLoadingSeriesEdit] = useState(false)
   const [reservationActionError, setReservationActionError] = useState('')
-  const [activeLogoUrl, setActiveLogoUrl] = useState(theme.logoUrl || sfsuDefaultLogoUrl)
-  const [logoLoadFailed, setLogoLoadFailed] = useState(false)
+  const [failedLogoUrls, setFailedLogoUrls] = useState<string[]>([])
   const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null)
   const [profilePhotoUnavailable, setProfilePhotoUnavailable] = useState(false)
-  const [selectedOwnerDetails, setSelectedOwnerDetails] = useState<ReservationOwnerDetails | null>(null)
-  const [selectedOwnerStatus, setSelectedOwnerStatus] = useState<OwnerLoadStatus>('idle')
+  const [ownerLookupResult, setOwnerLookupResult] = useState<OwnerLookupResult | null>(null)
 
   // Reservation modal state — non-null when the modal is open.
   const [bookingSlot, setBookingSlot] = useState<{ start: Date; end: Date } | null>(null)
@@ -303,26 +307,48 @@ export function CalendarScreen({ onOpenAdmin }: CalendarScreenProps) {
 
   // Track the loaded date range so we don't re-fetch unnecessarily.
   const loadedRangeRef = useRef<{ start: Date; end: Date } | null>(null)
-  const ownerDetailsCacheRef = useRef<Map<string, ReservationOwnerDetails>>(new Map())
+  const [ownerDetailsCache, setOwnerDetailsCache] = useState(
+    () => new Map<string, ReservationOwnerDetails>()
+  )
+  const configuredLogoUrl = theme.logoUrl || sfsuDefaultLogoUrl
+  const activeLogoUrl = !failedLogoUrls.includes(configuredLogoUrl)
+    ? configuredLogoUrl
+    : !failedLogoUrls.includes(sfsuDefaultLogoUrl)
+      ? sfsuDefaultLogoUrl
+      : ''
+  const logoLoadFailed = !activeLogoUrl
+  const selectedEventIsOccurrence = selectedEvent?.extendedProps?.type === 'occurrence'
+  const selectedOwnerId = selectedEventIsOccurrence ? reservationOwnerIdFor(selectedEvent) : null
+  const cachedSelectedOwner = selectedOwnerId
+    ? ownerDetailsCache.get(selectedOwnerId) ?? null
+    : null
+  const ownerResultMatches = ownerLookupResult?.appUserId === selectedOwnerId
+  const selectedOwnerDetails =
+    cachedSelectedOwner ?? (ownerResultMatches ? ownerLookupResult.details : null)
+  const selectedOwnerStatus: OwnerLoadStatus = !selectedEventIsOccurrence
+    ? 'idle'
+    : !selectedOwnerId
+      ? 'unavailable'
+      : cachedSelectedOwner
+        ? 'ready'
+        : ownerResultMatches
+          ? ownerLookupResult.status
+          : 'loading'
 
   // ---------------------------------------------------------------------------
   // Data loading
   // ---------------------------------------------------------------------------
 
-  useEffect(() => {
-    setActiveLogoUrl(theme.logoUrl || sfsuDefaultLogoUrl)
-    setLogoLoadFailed(false)
-  }, [theme.logoUrl])
-
   const handleLogoError = useCallback(() => {
     if (activeLogoUrl !== sfsuDefaultLogoUrl) {
       console.warn('Configured logo failed to load; using bundled default logo:', activeLogoUrl)
-      setActiveLogoUrl(sfsuDefaultLogoUrl)
-      return
+    } else {
+      console.warn('Bundled default logo failed to load.')
     }
 
-    console.warn('Bundled default logo failed to load.')
-    setLogoLoadFailed(true)
+    setFailedLogoUrls((current) =>
+      current.includes(activeLogoUrl) ? current : [...current, activeLogoUrl]
+    )
   }, [activeLogoUrl])
 
   useEffect(() => {
@@ -363,34 +389,12 @@ export function CalendarScreen({ onOpenAdmin }: CalendarScreenProps) {
   }, [currentUser?.email, currentUser?.userPrincipalName])
 
   useEffect(() => {
-    if (selectedEvent?.extendedProps?.type !== 'occurrence') {
-      setSelectedOwnerDetails(null)
-      setSelectedOwnerStatus('idle')
-      return
-    }
+    if (!selectedOwnerId || cachedSelectedOwner) return
 
-    const appUserId = reservationOwnerIdFor(selectedEvent)
-
-    if (!appUserId) {
-      setSelectedOwnerDetails(null)
-      setSelectedOwnerStatus('unavailable')
-      return
-    }
-
-    const cachedOwner = ownerDetailsCacheRef.current.get(appUserId)
-
-    if (cachedOwner) {
-      setSelectedOwnerDetails(cachedOwner)
-      setSelectedOwnerStatus('ready')
-      return
-    }
-
+    const appUserId = selectedOwnerId
     let cancelled = false
 
     async function loadSelectedOwnerDetails() {
-      setSelectedOwnerDetails(null)
-      setSelectedOwnerStatus('loading')
-
       try {
         const appUserResult = await Sfsures_appusersService.get(appUserId, {
           select: ['sfsures_appuserid', 'sfsures_displayname', 'sfsures_email'],
@@ -399,7 +403,11 @@ export function CalendarScreen({ onOpenAdmin }: CalendarScreenProps) {
 
         if (!appUser) {
           if (!cancelled) {
-            setSelectedOwnerStatus('unavailable')
+            setOwnerLookupResult({
+              appUserId,
+              status: 'unavailable',
+              details: null,
+            })
           }
           return
         }
@@ -443,17 +451,27 @@ export function CalendarScreen({ onOpenAdmin }: CalendarScreenProps) {
           photoUrl,
         }
 
-        ownerDetailsCacheRef.current.set(appUserId, ownerDetails)
+        setOwnerDetailsCache((current) => {
+          const next = new Map(current)
+          next.set(appUserId, ownerDetails)
+          return next
+        })
 
         if (!cancelled) {
-          setSelectedOwnerDetails(ownerDetails)
-          setSelectedOwnerStatus('ready')
+          setOwnerLookupResult({
+            appUserId,
+            status: 'ready',
+            details: ownerDetails,
+          })
         }
       } catch (err) {
         console.warn('Reservation owner App User row could not be loaded:', err)
         if (!cancelled) {
-          setSelectedOwnerDetails(null)
-          setSelectedOwnerStatus('unavailable')
+          setOwnerLookupResult({
+            appUserId,
+            status: 'unavailable',
+            details: null,
+          })
         }
       }
     }
@@ -463,13 +481,10 @@ export function CalendarScreen({ onOpenAdmin }: CalendarScreenProps) {
     return () => {
       cancelled = true
     }
-  }, [selectedEvent])
+  }, [cachedSelectedOwner, selectedOwnerId])
 
   const loadRange = useCallback(
     async (rangeStart: Date, rangeEnd: Date) => {
-      setLoadStatus('loading')
-      setErrorMessage('')
-
       const startIso = rangeStart.toISOString().split('.')[0] + 'Z'
       const endIso = rangeEnd.toISOString().split('.')[0] + 'Z'
 
@@ -555,7 +570,7 @@ export function CalendarScreen({ onOpenAdmin }: CalendarScreenProps) {
     start.setDate(start.getDate() - 90)
     const end = new Date(now)
     end.setDate(end.getDate() + 90)
-    loadRange(start, end)
+    queueMicrotask(() => loadRange(start, end))
   }, [loadRange])
 
   // Re-fetch when the user navigates outside the loaded range.
@@ -568,6 +583,8 @@ export function CalendarScreen({ onOpenAdmin }: CalendarScreenProps) {
         newStart.setDate(newStart.getDate() - 30)
         const newEnd = new Date(arg.end)
         newEnd.setDate(newEnd.getDate() + 30)
+        setLoadStatus('loading')
+        setErrorMessage('')
         loadRange(newStart, newEnd)
       }
     },
@@ -581,6 +598,8 @@ export function CalendarScreen({ onOpenAdmin }: CalendarScreenProps) {
   const refreshCalendar = useCallback(() => {
     const loaded = loadedRangeRef.current
     if (loaded) {
+      setLoadStatus('loading')
+      setErrorMessage('')
       loadRange(loaded.start, loaded.end)
     }
   }, [loadRange])
@@ -1129,11 +1148,16 @@ export function CalendarScreen({ onOpenAdmin }: CalendarScreenProps) {
                         alt=""
                         className={styles.ownerPhoto}
                         onError={() => {
-                          setSelectedOwnerDetails((current) => {
-                            if (!current) return current
-                            const next = { ...current, photoUrl: null }
-                            ownerDetailsCacheRef.current.set(current.appUserId, next)
-                            return next
+                          const next = { ...selectedOwnerDetails, photoUrl: null }
+                          setOwnerDetailsCache((current) => {
+                            const updated = new Map(current)
+                            updated.set(selectedOwnerDetails.appUserId, next)
+                            return updated
+                          })
+                          setOwnerLookupResult({
+                            appUserId: selectedOwnerDetails.appUserId,
+                            status: 'ready',
+                            details: next,
                           })
                         }}
                       />

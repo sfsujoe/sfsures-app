@@ -27,10 +27,10 @@ import { useTheme } from '../theme/ThemeContext'
 import {
   APP_ADMIN_GROUP_KEY,
   REPORT_VIEWERS_GROUP_KEY,
-  UserProvider,
   type CurrentUser,
   type CurrentUserGroup,
 } from './UserContext'
+import { UserProvider } from './UserProvider'
 import styles from './AccessGate.module.css'
 
 function extractSfStateId(upn: string | undefined | null): string | null {

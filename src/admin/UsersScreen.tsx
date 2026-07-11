@@ -40,6 +40,12 @@ interface DirectoryUser {
   userPrincipalName: string
 }
 
+interface SelectedPhotoResult {
+  lookupId: string
+  url: string | null
+  unavailable: boolean
+}
+
 const RECORD_STATUS_ACTIVE = 997330000
 const RECORD_STATUS_DISABLED = 997330001
 const DIRECTORY_TEXT_MIN_LENGTH = 3
@@ -156,9 +162,7 @@ export default function UsersScreen() {
   const [newUserLookup, setNewUserLookup] = useState('')
   const [directoryResults, setDirectoryResults] = useState<DirectoryUser[]>([])
   const [directoryStatus, setDirectoryStatus] = useState<'idle' | 'searching' | 'ready' | 'error'>('idle')
-  const [selectedPhotoUrl, setSelectedPhotoUrl] = useState<string | null>(null)
-  const [selectedPhotoLoading, setSelectedPhotoLoading] = useState(false)
-  const [selectedPhotoUnavailable, setSelectedPhotoUnavailable] = useState(false)
+  const [selectedPhotoResult, setSelectedPhotoResult] = useState<SelectedPhotoResult | null>(null)
   const [loadStatus, setLoadStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [savingUser, setSavingUser] = useState(false)
   const [savingGroupId, setSavingGroupId] = useState<string | null>(null)
@@ -166,9 +170,6 @@ export default function UsersScreen() {
   const [status, setStatus] = useState('')
 
   const loadUsers = useCallback(async () => {
-    setLoadStatus('loading')
-    setError('')
-
     try {
       const [userResult, groupResult, assignmentResult] = await Promise.all([
         Sfsures_appusersService.getAll({
@@ -260,6 +261,7 @@ export default function UsersScreen() {
           ? current
           : loadedUsers[0]?.appUserId ?? null
       )
+      setError('')
       setLoadStatus('ready')
     } catch (err) {
       console.error('Users admin load failed:', err)
@@ -269,8 +271,14 @@ export default function UsersScreen() {
   }, [])
 
   useEffect(() => {
-    void loadUsers()
+    queueMicrotask(() => void loadUsers())
   }, [loadUsers])
+
+  function handleRetryLoadUsers() {
+    setLoadStatus('loading')
+    setError('')
+    void loadUsers()
+  }
 
   const filteredUsers = useMemo(
     () => users.filter((user) => userMatchesSearch(user, search)),
@@ -288,41 +296,30 @@ export default function UsersScreen() {
   const directoryQuery = newUserLookup.trim()
   const directoryMinLength = directoryQueryMinLength(directoryQuery)
   const directoryQueryIsLongEnough = directoryQuery.length >= directoryMinLength
+  const selectedPhotoLookupId = selectedUser?.email ?? ''
+  const selectedPhotoMatches = selectedPhotoResult?.lookupId === selectedPhotoLookupId
+  const selectedPhotoUrl = selectedPhotoMatches ? selectedPhotoResult.url : null
+  const selectedPhotoLoading = Boolean(selectedPhotoLookupId) && !selectedPhotoMatches
+  const selectedPhotoUnavailable =
+    !selectedPhotoLookupId || (selectedPhotoMatches && selectedPhotoResult.unavailable)
 
   useEffect(() => {
-    const photoLookupId = selectedUser?.email
+    if (!selectedPhotoLookupId) return
 
-    if (!photoLookupId) {
-      setSelectedPhotoUrl(null)
-      setSelectedPhotoUnavailable(true)
-      setSelectedPhotoLoading(false)
-      return
-    }
-
-    const userPhotoId = photoLookupId
+    const userPhotoId = selectedPhotoLookupId
     let cancelled = false
 
     async function loadSelectedPhoto() {
-      setSelectedPhotoUrl(null)
-      setSelectedPhotoUnavailable(false)
-      setSelectedPhotoLoading(true)
-
       try {
         const src = await loadTenantProfilePhotoSrc(userPhotoId)
 
         if (!cancelled) {
-          setSelectedPhotoUrl(src)
-          setSelectedPhotoUnavailable(!src)
+          setSelectedPhotoResult({ lookupId: userPhotoId, url: src, unavailable: !src })
         }
       } catch (err) {
         console.warn('Selected user profile photo could not be loaded:', err)
         if (!cancelled) {
-          setSelectedPhotoUrl(null)
-          setSelectedPhotoUnavailable(true)
-        }
-      } finally {
-        if (!cancelled) {
-          setSelectedPhotoLoading(false)
+          setSelectedPhotoResult({ lookupId: userPhotoId, url: null, unavailable: true })
         }
       }
     }
@@ -332,20 +329,10 @@ export default function UsersScreen() {
     return () => {
       cancelled = true
     }
-  }, [selectedUser?.email])
+  }, [selectedPhotoLookupId])
 
   useEffect(() => {
-    if (!directoryQuery) {
-      setDirectoryResults([])
-      setDirectoryStatus('idle')
-      return
-    }
-
-    if (!directoryQueryIsLongEnough) {
-      setDirectoryResults([])
-      setDirectoryStatus('idle')
-      return
-    }
+    if (!directoryQueryIsLongEnough) return
 
     let cancelled = false
     const timer = window.setTimeout(async () => {
@@ -379,6 +366,16 @@ export default function UsersScreen() {
       window.clearTimeout(timer)
     }
   }, [directoryQuery, directoryQueryIsLongEnough])
+
+  function updateDirectoryQuery(value: string) {
+    setNewUserLookup(value)
+    setDirectoryResults([])
+    setDirectoryStatus('idle')
+  }
+
+  function clearDirectoryQuery() {
+    updateDirectoryQuery('')
+  }
 
   async function createAppUserFromDirectoryUser(
     profile: DirectoryUser
@@ -449,9 +446,7 @@ export default function UsersScreen() {
         return
       }
 
-      setNewUserLookup('')
-      setDirectoryResults([])
-      setDirectoryStatus('idle')
+      clearDirectoryQuery()
       setStatus('User added.')
       await loadUsers()
       setSelectedUserId(result.userId)
@@ -479,9 +474,7 @@ export default function UsersScreen() {
         return
       }
 
-      setNewUserLookup('')
-      setDirectoryResults([])
-      setDirectoryStatus('idle')
+      clearDirectoryQuery()
       setStatus('User added.')
       await loadUsers()
       setSelectedUserId(result.userId)
@@ -639,7 +632,7 @@ export default function UsersScreen() {
       )}
 
       {loadStatus === 'error' ? (
-        <button type="button" className={styles.primaryButton} onClick={() => void loadUsers()}>
+        <button type="button" className={styles.primaryButton} onClick={handleRetryLoadUsers}>
           Retry
         </button>
       ) : (
@@ -654,7 +647,7 @@ export default function UsersScreen() {
                   value={newUserLookup}
                   placeholder="Search the directory..."
                   autoComplete="off"
-                  onChange={(event) => setNewUserLookup(event.target.value)}
+                  onChange={(event) => updateDirectoryQuery(event.target.value)}
                 />
               </label>
 
@@ -764,8 +757,11 @@ export default function UsersScreen() {
                             alt=""
                             className={styles.userPhoto}
                             onError={() => {
-                              setSelectedPhotoUrl(null)
-                              setSelectedPhotoUnavailable(true)
+                              setSelectedPhotoResult((current) =>
+                                current?.lookupId === selectedPhotoLookupId
+                                  ? { ...current, url: null, unavailable: true }
+                                  : current
+                              )
                             }}
                           />
                         ) : selectedPhotoLoading ? (

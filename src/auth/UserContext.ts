@@ -1,16 +1,11 @@
 /**
- * UserContext
+ * Authenticated App User context, types, and permission keys.
  *
- * Holds the authenticated user's App User record after AccessGate validates.
- * Populated once during the access check; consumed by any component that
- * needs the current user's SF State ID, App User GUID, display name, or
- * email without re-querying Dataverse.
- *
- * This is NOT the Dataverse security identity (systemuser / OwnerId) — it's
- * the app-layer App User record keyed by SF State ID.
+ * The provider component lives in UserProvider.tsx so this shared module can
+ * safely export non-component values without interfering with Fast Refresh.
  */
 
-import { createContext, useContext, type ReactNode } from 'react'
+import { createContext, useContext } from 'react'
 
 export const APP_ADMIN_GROUP_KEY = 'APP_ADMINS'
 export const REPORT_VIEWERS_GROUP_KEY = 'REPORT_VIEWERS'
@@ -43,23 +38,12 @@ export interface CurrentUser {
   canViewReports: boolean
 }
 
-const UserContext = createContext<CurrentUser | null>(null)
+export const UserContext = createContext<CurrentUser | null>(null)
 
 /**
- * Returns the current App User record, or null if called outside
- * the AccessGate's "allowed" branch (should never happen in practice
- * because AccessGate blocks rendering until the check passes).
+ * Returns the current App User record, or null before AccessGate has allowed
+ * the authenticated branch to render.
  */
 export function useCurrentUser(): CurrentUser | null {
   return useContext(UserContext)
-}
-
-export function UserProvider({
-  user,
-  children,
-}: {
-  user: CurrentUser
-  children: ReactNode
-}) {
-  return <UserContext.Provider value={user}>{children}</UserContext.Provider>
 }
