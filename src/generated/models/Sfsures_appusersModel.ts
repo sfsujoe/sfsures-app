@@ -22,6 +22,7 @@ export interface Sfsures_appusersBase {
   importsequencenumber?: number;
   overriddencreatedon?: string;
   sfsures_appuserid: string;
+  "sfsures_DataverseUser@odata.bind"?: string;
   sfsures_displayname?: string;
   sfsures_email?: string;
   sfsures_recordstatus?: Sfsures_appuserssfsures_recordstatus;
@@ -44,6 +45,8 @@ export interface Sfsures_appusers extends Sfsures_appusersBase {
   modifiedonbehalfbyname?: string;
   modifiedonbehalfbyyominame: string;
   organizationidname: string;
+  sfsures_dataverseusername?: string;
+  sfsures_dataverseuseryominame?: string;
   sfsures_recordstatusname?: string;
   statecodename?: string;
   statuscodename?: string;
@@ -58,4 +61,6 @@ export interface Sfsures_appusers extends Sfsures_appusersBase {
   _modifiedonbehalfby_value?: string;
   organizationid?: object;
   _organizationid_value?: string;
+  sfsures_dataverseuser?: object;
+  _sfsures_dataverseuser_value?: string;
 }

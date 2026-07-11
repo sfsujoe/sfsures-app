@@ -176,6 +176,31 @@
           "required": true,
           "x-ms-keyType": "primary"
         },
+        "sfsures_dataverseuser": {
+          "type": "string",
+          "title": "Dataverse User",
+          "x-ms-dataverse-attribute": "sfsures_dataverseuser",
+          "x-ms-dataverse-type": "LookupType",
+          "x-ms-schema-name": "sfsures_DataverseUser"
+        },
+        "sfsures_dataverseusername": {
+          "type": "string",
+          "title": "sfsures_dataverseusername",
+          "x-ms-dataverse-attribute": "sfsures_dataverseusername",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "sfsures_DataverseUserName",
+          "x-ms-read-only": true,
+          "maxLength": 200
+        },
+        "sfsures_dataverseuseryominame": {
+          "type": "string",
+          "title": "sfsures_dataverseuseryominame",
+          "x-ms-dataverse-attribute": "sfsures_dataverseuseryominame",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "sfsures_DataverseUserYomiName",
+          "x-ms-read-only": true,
+          "maxLength": 200
+        },
         "sfsures_displayname": {
           "type": "string",
           "title": "Display Name",

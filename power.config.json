@@ -92,6 +92,11 @@
           "entitySetName": "sfsures_auditlogs",
           "logicalName": "sfsures_auditlog",
           "isHidden": false
+        },
+        "users": {
+          "entitySetName": "systemusers",
+          "logicalName": "systemuser",
+          "isHidden": false
         }
       },
       "environmentVariableName": ""

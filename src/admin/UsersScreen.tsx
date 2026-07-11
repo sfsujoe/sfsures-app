@@ -1,14 +1,25 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+} from 'react'
+import { useFocusTrap } from '../a11y/useFocusTrap'
 import { AUDIT_ACTION_TYPES, AUDIT_TARGET_TYPES, writeAuditLog } from '../audit/auditLog'
 import { APP_ADMIN_GROUP_KEY, useCurrentUser } from '../auth/UserContext'
 import { Office365UsersService } from '../generated/services/Office365UsersService'
 import { Sfsures_appusersService } from '../generated/services/Sfsures_appusersService'
 import { Sfsures_groupsService } from '../generated/services/Sfsures_groupsService'
 import { Sfsures_usergroupassignmentsService } from '../generated/services/Sfsures_usergroupassignmentsService'
+import { SystemusersService } from '../generated/services/SystemusersService'
 import type { Sfsures_appusers } from '../generated/models/Sfsures_appusersModel'
 import type { Sfsures_groups } from '../generated/models/Sfsures_groupsModel'
 import type { Sfsures_usergroupassignments } from '../generated/models/Sfsures_usergroupassignmentsModel'
 import type { User } from '../generated/models/Office365UsersModel'
+import type { Systemusers } from '../generated/models/SystemusersModel'
 import styles from './AdminApp.module.css'
 
 interface AdminGroup {
@@ -29,16 +40,24 @@ interface AdminUser {
   sfStateId: string
   displayName: string
   email: string
+  dataverseUserId: string
   recordStatus: number
   assignments: UserGroupAssignment[]
   groups: AdminGroup[]
 }
 
 interface DirectoryUser {
+  directoryObjectId: string
   displayName: string
   email: string
   userPrincipalName: string
 }
+
+interface DataverseSystemUser {
+  userId: string
+}
+
+type AppUserOnboardingOutcome = 'created' | 'mapped' | 'exists'
 
 interface SelectedPhotoResult {
   lookupId: string
@@ -51,6 +70,7 @@ const RECORD_STATUS_DISABLED = 997330001
 const DIRECTORY_TEXT_MIN_LENGTH = 3
 const DIRECTORY_NUMERIC_MIN_LENGTH = 5
 const DIRECTORY_RESULT_LIMIT = 8
+const GUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 function normalizeGroupKey(groupKey: string | undefined | null): string {
   return groupKey?.trim().toUpperCase() ?? ''
@@ -65,6 +85,10 @@ function extractSfStateId(upn: string | undefined | null): string | null {
 
 function escapeODataString(value: string): string {
   return value.replace(/'/g, "''")
+}
+
+function normalizeIdentity(value: string | undefined | null): string {
+  return value?.trim().toLowerCase() ?? ''
 }
 
 function userDisplayName(user: Pick<AdminUser, 'displayName' | 'email' | 'sfStateId'>): string {
@@ -125,9 +149,82 @@ function directoryUserFromUser(user: User): DirectoryUser | null {
   }
 
   return {
+    directoryObjectId: user.Id?.trim() ?? '',
     displayName: user.DisplayName?.trim() || email || userPrincipalName,
     email,
     userPrincipalName: userPrincipalName || email,
+  }
+}
+
+function directoryUserFieldValue(user: DirectoryUser): string {
+  const identity = user.email || user.userPrincipalName
+  return user.displayName && normalizeIdentity(user.displayName) !== normalizeIdentity(identity)
+    ? `${user.displayName} — ${identity}`
+    : identity
+}
+
+async function resolveDataverseSystemUser(profile: DirectoryUser): Promise<DataverseSystemUser> {
+  const directoryObjectId = profile.directoryObjectId.trim().replace(/[{}]/g, '')
+  const upn = profile.userPrincipalName.trim()
+  const email = profile.email.trim()
+  const identityFilters: string[] = []
+
+  if (GUID_PATTERN.test(directoryObjectId)) {
+    identityFilters.push(`azureactivedirectoryobjectid eq ${directoryObjectId}`)
+  }
+  if (upn) {
+    identityFilters.push(`domainname eq '${escapeODataString(upn)}'`)
+  }
+  if (email) {
+    identityFilters.push(`internalemailaddress eq '${escapeODataString(email)}'`)
+  }
+
+  if (identityFilters.length === 0) {
+    throw new Error('The selected directory profile does not contain an identity Dataverse can match.')
+  }
+
+  const result = await SystemusersService.getAll({
+    select: [
+      'systemuserid',
+      'azureactivedirectoryobjectid',
+      'domainname',
+      'internalemailaddress',
+      'isdisabled',
+      'applicationid',
+    ],
+    filter: `(${identityFilters.join(' or ')}) and isdisabled eq false and applicationid eq null`,
+    top: 10,
+  })
+  const candidates = ((result.data ?? []) as Systemusers[])
+    .filter((candidate) => candidate.systemuserid && candidate.isdisabled !== true)
+
+  const directoryMatches = directoryObjectId
+    ? candidates.filter(
+        (candidate) => normalizeIdentity(candidate.azureactivedirectoryobjectid) === directoryObjectId.toLowerCase()
+      )
+    : []
+  const fallbackIdentities = new Set([normalizeIdentity(upn), normalizeIdentity(email)].filter(Boolean))
+  const fallbackMatches = candidates.filter(
+    (candidate) =>
+      fallbackIdentities.has(normalizeIdentity(candidate.domainname)) ||
+      fallbackIdentities.has(normalizeIdentity(candidate.internalemailaddress))
+  )
+  const matches = directoryMatches.length > 0 ? directoryMatches : fallbackMatches
+
+  if (matches.length === 0) {
+    throw new Error(
+      `No enabled Dataverse user was found for ${upn || email}. Add the user to this environment and the appropriate Owner team before creating the App User.`
+    )
+  }
+  if (matches.length > 1) {
+    throw new Error(
+      `More than one enabled Dataverse user matched ${upn || email}. Review the environment User records before continuing.`
+    )
+  }
+
+  const match = matches[0]
+  return {
+    userId: match.systemuserid,
   }
 }
 
@@ -162,12 +259,19 @@ export default function UsersScreen() {
   const [newUserLookup, setNewUserLookup] = useState('')
   const [directoryResults, setDirectoryResults] = useState<DirectoryUser[]>([])
   const [directoryStatus, setDirectoryStatus] = useState<'idle' | 'searching' | 'ready' | 'error'>('idle')
+  const [selectedDirectoryUser, setSelectedDirectoryUser] = useState<DirectoryUser | null>(null)
+  const [confirmationUser, setConfirmationUser] = useState<DirectoryUser | null>(null)
+  const [confirmationPhotoResult, setConfirmationPhotoResult] = useState<SelectedPhotoResult | null>(null)
+  const [confirmationError, setConfirmationError] = useState('')
   const [selectedPhotoResult, setSelectedPhotoResult] = useState<SelectedPhotoResult | null>(null)
   const [loadStatus, setLoadStatus] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [preparingUser, setPreparingUser] = useState(false)
   const [savingUser, setSavingUser] = useState(false)
   const [savingGroupId, setSavingGroupId] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [status, setStatus] = useState('')
+  const confirmationDialogRef = useRef<HTMLDivElement | null>(null)
+  useFocusTrap(confirmationDialogRef, confirmationUser !== null)
 
   const loadUsers = useCallback(async () => {
     try {
@@ -178,6 +282,7 @@ export default function UsersScreen() {
             'sfsures_sfstateid',
             'sfsures_displayname',
             'sfsures_email',
+            '_sfsures_dataverseuser_value',
             'sfsures_recordstatus',
           ],
           orderBy: ['sfsures_displayname asc', 'sfsures_sfstateid asc'],
@@ -245,6 +350,7 @@ export default function UsersScreen() {
             sfStateId: user.sfsures_sfstateid,
             displayName: user.sfsures_displayname ?? '',
             email: user.sfsures_email ?? '',
+            dataverseUserId: user._sfsures_dataverseuser_value ?? '',
             recordStatus: user.sfsures_recordstatus ?? RECORD_STATUS_ACTIVE,
             assignments,
             groups: userGroups,
@@ -302,6 +408,14 @@ export default function UsersScreen() {
   const selectedPhotoLoading = Boolean(selectedPhotoLookupId) && !selectedPhotoMatches
   const selectedPhotoUnavailable =
     !selectedPhotoLookupId || (selectedPhotoMatches && selectedPhotoResult.unavailable)
+  const confirmationPhotoLookupId = confirmationUser
+    ? confirmationUser.directoryObjectId || confirmationUser.userPrincipalName || confirmationUser.email
+    : ''
+  const confirmationPhotoMatches = confirmationPhotoResult?.lookupId === confirmationPhotoLookupId
+  const confirmationPhotoUrl = confirmationPhotoMatches ? confirmationPhotoResult.url : null
+  const confirmationPhotoLoading = Boolean(confirmationPhotoLookupId) && !confirmationPhotoMatches
+  const confirmationPhotoUnavailable =
+    !confirmationPhotoLookupId || (confirmationPhotoMatches && confirmationPhotoResult.unavailable)
 
   useEffect(() => {
     if (!selectedPhotoLookupId) return
@@ -332,7 +446,35 @@ export default function UsersScreen() {
   }, [selectedPhotoLookupId])
 
   useEffect(() => {
-    if (!directoryQueryIsLongEnough) return
+    if (!confirmationPhotoLookupId) return
+
+    const userPhotoId = confirmationPhotoLookupId
+    let cancelled = false
+
+    async function loadConfirmationPhoto() {
+      try {
+        const src = await loadTenantProfilePhotoSrc(userPhotoId)
+
+        if (!cancelled) {
+          setConfirmationPhotoResult({ lookupId: userPhotoId, url: src, unavailable: !src })
+        }
+      } catch (err) {
+        console.warn('Confirmation profile photo could not be loaded:', err)
+        if (!cancelled) {
+          setConfirmationPhotoResult({ lookupId: userPhotoId, url: null, unavailable: true })
+        }
+      }
+    }
+
+    void loadConfirmationPhoto()
+
+    return () => {
+      cancelled = true
+    }
+  }, [confirmationPhotoLookupId])
+
+  useEffect(() => {
+    if (selectedDirectoryUser || !directoryQueryIsLongEnough) return
 
     let cancelled = false
     const timer = window.setTimeout(async () => {
@@ -365,10 +507,11 @@ export default function UsersScreen() {
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [directoryQuery, directoryQueryIsLongEnough])
+  }, [directoryQuery, directoryQueryIsLongEnough, selectedDirectoryUser])
 
   function updateDirectoryQuery(value: string) {
     setNewUserLookup(value)
+    setSelectedDirectoryUser(null)
     setDirectoryResults([])
     setDirectoryStatus('idle')
   }
@@ -377,19 +520,33 @@ export default function UsersScreen() {
     updateDirectoryQuery('')
   }
 
+  function selectDirectoryUser(profile: DirectoryUser) {
+    setSelectedDirectoryUser(profile)
+    setNewUserLookup(directoryUserFieldValue(profile))
+    setDirectoryResults([])
+    setDirectoryStatus('idle')
+    setError('')
+    setStatus('')
+  }
+
   async function createAppUserFromDirectoryUser(
     profile: DirectoryUser
-  ): Promise<{ userId: string | null; created: boolean }> {
+  ): Promise<{ userId: string | null; outcome: AppUserOnboardingOutcome }> {
     const upn = profile.userPrincipalName.trim()
     const sfStateId = extractSfStateId(upn)
 
     if (!sfStateId) {
-      setError('The user profile did not return a valid 9-character SF State ID.')
-      return { userId: null, created: false }
+      throw new Error('The user profile did not return a valid 9-character SF State ID.')
     }
 
+    const dataverseUser = await resolveDataverseSystemUser(profile)
+
     const existingResult = await Sfsures_appusersService.getAll({
-      select: ['sfsures_appuserid', 'sfsures_sfstateid'],
+      select: [
+        'sfsures_appuserid',
+        'sfsures_sfstateid',
+        '_sfsures_dataverseuser_value',
+      ],
       filter: `sfsures_sfstateid eq '${escapeODataString(sfStateId)}'`,
       top: 1,
     })
@@ -397,20 +554,38 @@ export default function UsersScreen() {
 
     if (existingUser?.sfsures_appuserid) {
       setSelectedUserId(existingUser.sfsures_appuserid)
-      setError('This App User already exists.')
-      return { userId: existingUser.sfsures_appuserid, created: false }
+      const existingDataverseUserId = existingUser._sfsures_dataverseuser_value ?? ''
+
+      if (
+        existingDataverseUserId &&
+        normalizeIdentity(existingDataverseUserId) !== normalizeIdentity(dataverseUser.userId)
+      ) {
+        throw new Error(
+          'This App User is already mapped to a different Dataverse user. Review the App User row before continuing.'
+        )
+      }
+
+      if (!existingDataverseUserId) {
+        await Sfsures_appusersService.update(existingUser.sfsures_appuserid, {
+          'sfsures_DataverseUser@odata.bind': `/systemusers(${dataverseUser.userId})`,
+        } as Parameters<typeof Sfsures_appusersService.update>[1])
+        return { userId: existingUser.sfsures_appuserid, outcome: 'mapped' }
+      }
+
+      return { userId: existingUser.sfsures_appuserid, outcome: 'exists' }
     }
 
     const created = await Sfsures_appusersService.create({
       sfsures_sfstateid: sfStateId,
       sfsures_displayname: profile.displayName || upn.split('@')[0] || sfStateId,
       sfsures_email: profile.email || upn,
+      'sfsures_DataverseUser@odata.bind': `/systemusers(${dataverseUser.userId})`,
       sfsures_recordstatus: RECORD_STATUS_ACTIVE,
       statecode: 0,
       statuscode: 1,
     } as unknown as Parameters<typeof Sfsures_appusersService.create>[0])
 
-    return { userId: created.data?.sfsures_appuserid ?? null, created: true }
+    return { userId: created.data?.sfsures_appuserid ?? null, outcome: 'created' }
   }
 
   async function handleCreateUser(event: FormEvent<HTMLFormElement>) {
@@ -421,66 +596,79 @@ export default function UsersScreen() {
       return
     }
 
-    setSavingUser(true)
+    setPreparingUser(true)
     setError('')
     setStatus('')
 
     try {
-      const profileResult = await Office365UsersService.UserProfile_V2(
-        lookup,
-        'displayName,mail,userPrincipalName'
-      )
-      const profile = profileResult.data
-      const upn = profile?.userPrincipalName?.trim() || lookup
-      const result = await createAppUserFromDirectoryUser({
-        displayName: profile?.displayName?.trim() || upn.split('@')[0] || upn,
-        email: profile?.mail?.trim() || upn,
-        userPrincipalName: upn,
-      })
+      let profile = selectedDirectoryUser
 
-      if (!result.created) {
-        if (result.userId) {
-          await loadUsers()
-          setSelectedUserId(result.userId)
+      if (!profile) {
+        const profileResult = await Office365UsersService.UserProfile_V2(
+          lookup,
+          'id,displayName,mail,userPrincipalName'
+        )
+        const directoryProfile = profileResult.data
+        const upn = directoryProfile?.userPrincipalName?.trim() || lookup
+        profile = {
+          directoryObjectId: directoryProfile?.id?.trim() ?? '',
+          displayName: directoryProfile?.displayName?.trim() || upn.split('@')[0] || upn,
+          email: directoryProfile?.mail?.trim() || upn,
+          userPrincipalName: upn,
         }
-        return
+        selectDirectoryUser(profile)
       }
 
-      clearDirectoryQuery()
-      setStatus('User added.')
-      await loadUsers()
-      setSelectedUserId(result.userId)
+      setConfirmationPhotoResult(null)
+      setConfirmationError('')
+      setConfirmationUser(profile)
     } catch (err) {
-      console.error('Create App User failed:', err)
-      setError(err instanceof Error ? err.message : 'User could not be added.')
+      console.error('Prepare App User confirmation failed:', err)
+      setError(err instanceof Error ? err.message : 'User could not be verified.')
     } finally {
-      setSavingUser(false)
+      setPreparingUser(false)
     }
   }
 
-  async function handleSelectDirectoryUser(profile: DirectoryUser) {
+  function closeUserConfirmation() {
+    if (savingUser) return
+    setConfirmationUser(null)
+    setConfirmationPhotoResult(null)
+    setConfirmationError('')
+  }
+
+  function handleConfirmationKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key === 'Escape' && !savingUser) {
+      event.preventDefault()
+      closeUserConfirmation()
+    }
+  }
+
+  async function handleConfirmAddUser(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!confirmationUser) return
+
     setSavingUser(true)
-    setError('')
-    setStatus('')
+    setConfirmationError('')
 
     try {
-      const result = await createAppUserFromDirectoryUser(profile)
+      const result = await createAppUserFromDirectoryUser(confirmationUser)
 
-      if (!result.created) {
-        if (result.userId) {
-          await loadUsers()
-          setSelectedUserId(result.userId)
-        }
-        return
-      }
-
+      setConfirmationUser(null)
+      setConfirmationPhotoResult(null)
       clearDirectoryQuery()
-      setStatus('User added.')
+      setStatus(
+        result.outcome === 'created'
+          ? 'User added and linked to their Dataverse user.'
+          : result.outcome === 'mapped'
+            ? 'Existing App User linked to their Dataverse user.'
+            : 'This App User already exists and has the correct Dataverse user link.'
+      )
       await loadUsers()
       setSelectedUserId(result.userId)
     } catch (err) {
-      console.error('Create App User from directory result failed:', err)
-      setError(err instanceof Error ? err.message : 'User could not be added.')
+      console.error('Confirmed App User creation failed:', err)
+      setConfirmationError(err instanceof Error ? err.message : 'User could not be added.')
     } finally {
       setSavingUser(false)
     }
@@ -651,7 +839,7 @@ export default function UsersScreen() {
                 />
               </label>
 
-              {directoryQuery && (
+              {directoryQuery && !selectedDirectoryUser && (
                 <div className={styles.directoryResults} role="listbox">
                   {!directoryQueryIsLongEnough && (
                     <p className={styles.directoryHint}>
@@ -676,8 +864,8 @@ export default function UsersScreen() {
                       key={`${result.userPrincipalName}-${result.email}`}
                       type="button"
                       className={styles.directoryResult}
-                      disabled={savingUser}
-                      onClick={() => void handleSelectDirectoryUser(result)}
+                      disabled={savingUser || preparingUser}
+                      onClick={() => selectDirectoryUser(result)}
                     >
                       <span className={styles.directoryResultName}>{result.displayName}</span>
                       <span className={styles.directoryResultMeta}>
@@ -688,8 +876,12 @@ export default function UsersScreen() {
                 </div>
               )}
             </div>
-            <button type="submit" className={styles.primaryButton} disabled={savingUser}>
-              {savingUser ? 'Adding...' : 'Add User'}
+            <button
+              type="submit"
+              className={styles.primaryButton}
+              disabled={savingUser || preparingUser}
+            >
+              {preparingUser ? 'Verifying...' : 'Add User'}
             </button>
           </form>
 
@@ -802,6 +994,10 @@ export default function UsersScreen() {
                       </dd>
                     </div>
                     <div>
+                      <dt>Dataverse user</dt>
+                      <dd>{selectedUser.dataverseUserId ? 'Mapped' : 'Not mapped'}</dd>
+                    </div>
+                    <div>
                       <dt>Groups</dt>
                       <dd>{selectedUser.groups.length}</dd>
                     </div>
@@ -862,6 +1058,105 @@ export default function UsersScreen() {
             </div>
           </div>
         </>
+      )}
+
+      {confirmationUser && (
+        <div className={styles.modalBackdrop}>
+          <div
+            ref={confirmationDialogRef}
+            className={styles.adminModal}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="add-user-confirmation-title"
+            aria-describedby="add-user-confirmation-warning"
+            tabIndex={-1}
+            onKeyDown={handleConfirmationKeyDown}
+          >
+            <form className={styles.modalForm} onSubmit={handleConfirmAddUser}>
+              <header className={styles.modalHeader}>
+                <div>
+                  <p className={styles.detailLabel}>App User</p>
+                  <h2 id="add-user-confirmation-title">Confirm Add User</h2>
+                </div>
+                <button
+                  type="button"
+                  className={styles.secondaryButton}
+                  disabled={savingUser}
+                  onClick={closeUserConfirmation}
+                >
+                  Close
+                </button>
+              </header>
+
+              {confirmationError && (
+                <p className={styles.errorBanner} role="alert">
+                  {confirmationError}
+                </p>
+              )}
+
+              <div className={styles.modalBody}>
+                <div className={styles.userConfirmationIdentity}>
+                  <div
+                    className={
+                      confirmationPhotoLoading
+                        ? `${styles.userPhotoFallback} ${styles.userPhotoLoading}`
+                        : styles.userPhotoFallback
+                    }
+                    aria-hidden="true"
+                  >
+                    {confirmationPhotoUrl && !confirmationPhotoUnavailable ? (
+                      <img
+                        src={confirmationPhotoUrl}
+                        alt=""
+                        className={styles.userPhoto}
+                        onError={() => {
+                          setConfirmationPhotoResult((current) =>
+                            current?.lookupId === confirmationPhotoLookupId
+                              ? { ...current, url: null, unavailable: true }
+                              : current
+                          )
+                        }}
+                      />
+                    ) : confirmationPhotoLoading ? (
+                      ''
+                    ) : (
+                      initialsFor(confirmationUser.displayName, confirmationUser.email)
+                    )}
+                  </div>
+                  <div className={styles.userConfirmationDetails}>
+                    <h3>{confirmationUser.displayName}</h3>
+                    <p>{confirmationUser.email || confirmationUser.userPrincipalName}</p>
+                  </div>
+                </div>
+
+                <p
+                  id="add-user-confirmation-warning"
+                  className={styles.userConfirmationWarning}
+                >
+                  <strong>This action cannot be undone.</strong> Confirm that this is the correct
+                  person before adding them as an App User.
+                </p>
+              </div>
+
+              <footer className={styles.modalFooter}>
+                <div />
+                <div className={styles.modalFooterActions}>
+                  <button
+                    type="button"
+                    className={styles.secondaryButton}
+                    disabled={savingUser}
+                    onClick={closeUserConfirmation}
+                  >
+                    Cancel
+                  </button>
+                  <button type="submit" className={styles.primaryButton} disabled={savingUser}>
+                    {savingUser ? 'Adding...' : 'Confirm Add User'}
+                  </button>
+                </div>
+              </footer>
+            </form>
+          </div>
+        </div>
       )}
     </section>
   )

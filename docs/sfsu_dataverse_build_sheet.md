@@ -320,6 +320,7 @@ Named `appuser` to avoid confusion with the built-in `systemuser` table.
 | SF State ID | Text (9) | primary column **+ Active Alternate Key** (`sfsures_sfstateiduniquekey`, unique). First 9 chars of UPN. |
 | Display Name | Text | display only |
 | Email | Text | display only |
+| Dataverse User | Lookup → User (`systemuser`) | optional during backfill; maps the App User history/business identity to the Dataverse security principal needed for reservation `OwnerId` assignment. Referential relationship with Restrict Delete and no cascading assignment/deletion. |
 | Record Status | Choice | Active / Disabled — **disable, never delete** |
  
 > **Write-once SF State ID (build directive).** The app pulls SF State ID from **Office365Users** at
@@ -600,6 +601,9 @@ Record per instance: app owner, co-owners, the three access Owner teams, the ITS
 - [ ] User↔Group, Group↔ResourceType, Group↔Resource are **three separate junction tables**, each
       with two lookups — none collapsed into a single lookup; Access Level **default = View** on #8/#9.
 - [ ] App User: SF State ID is the primary column **and** an Active unique **Alternate Key**.
+- [ ] App User: `Dataverse User` (`sfsures_DataverseUser`) maps each active App User to the correct
+      enabled human System User before delegated reservation ownership is enabled; relationship is
+      Referential/Restrict Delete with no cascading assignment/deletion.
 - [ ] Occurrence Start/End are real **DateTime**; Series lookup **optional**; Resource + Booking Owner
       denormalized onto it; primary is Autonumber `OCC-`.
 - [ ] Blackout Window Reason is **Business Required**.

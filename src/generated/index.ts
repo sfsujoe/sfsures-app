@@ -20,6 +20,7 @@ export * as Sfsures_resourceattributevaluesModel from './models/Sfsures_resource
 export * as Sfsures_resourcesModel from './models/Sfsures_resourcesModel';
 export * as Sfsures_resourcetypesModel from './models/Sfsures_resourcetypesModel';
 export * as Sfsures_usergroupassignmentsModel from './models/Sfsures_usergroupassignmentsModel';
+export * as SystemusersModel from './models/SystemusersModel';
 
 // Services
 export * from './services/Office365UsersService';
@@ -37,3 +38,4 @@ export * from './services/Sfsures_resourceattributevaluesService';
 export * from './services/Sfsures_resourcesService';
 export * from './services/Sfsures_resourcetypesService';
 export * from './services/Sfsures_usergroupassignmentsService';
+export * from './services/SystemusersService';
