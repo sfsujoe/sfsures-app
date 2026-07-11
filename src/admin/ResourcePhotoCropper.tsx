@@ -27,6 +27,24 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   })
 }
 
+function readBlobAsDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result)
+        return
+      }
+
+      reject(new Error('The cropped image preview could not be prepared.'))
+    }
+    reader.onerror = () => reject(new Error('The cropped image preview could not be read.'))
+    reader.onabort = () => reject(new Error('Preparing the cropped image preview was canceled.'))
+    reader.readAsDataURL(blob)
+  })
+}
+
 async function cropImage(imageUrl: string, crop: Area): Promise<CroppedResourcePhoto> {
   const image = await loadImage(imageUrl)
   const canvas = document.createElement('canvas')
@@ -69,7 +87,7 @@ async function cropImage(imageUrl: string, crop: Area): Promise<CroppedResourceP
   return {
     file: new File([blob], 'resource-photo.jpg', { type: 'image/jpeg' }),
     byteSize: blob.size,
-    previewUrl: URL.createObjectURL(blob),
+    previewUrl: await readBlobAsDataUrl(blob),
   }
 }
 
@@ -117,6 +135,12 @@ export default function ResourcePhotoCropper({
           onCropChange={setCrop}
           onCropComplete={handleCropComplete}
           onZoomChange={setZoom}
+          onMediaLoaded={() => setError('')}
+          mediaProps={{
+            alt: 'Selected resource photo to crop',
+            onError: () =>
+              setError('The selected image could not be displayed. Try a JPG or PNG file.'),
+          }}
           showGrid={false}
         />
       </div>

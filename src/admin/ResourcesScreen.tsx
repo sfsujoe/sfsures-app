@@ -46,7 +46,6 @@ interface AdminResource {
   description: string
   calendarColor: Sfsures_resourcessfsures_calendarcolor
   recordStatus: number
-  photoFullUrl: string | null
   photoThumbnailUrl: string | null
 }
 
@@ -76,12 +75,11 @@ interface PendingResourcePhoto {
 }
 
 interface ResourcePhotoInfo {
-  photoFullUrl: string | null
   photoThumbnailUrl: string | null
 }
 
 interface PhotoCropSource {
-  objectUrl: string
+  dataUrl: string
 }
 
 const RESOURCE_TYPE_STATUS_ACTIVE = 997330000
@@ -90,7 +88,6 @@ const RESOURCE_STATUS_ACTIVE = 997330000
 const RESOURCE_STATUS_DISABLED = 997330001
 const DEFAULT_RESOURCE_COLOR = RESOURCE_COLOR_OPTIONS[0].value
 const RESOURCE_PHOTO_COLUMN = 'sfsures_resourcephoto'
-const RESOURCE_PHOTO_URL_COLUMN = `${RESOURCE_PHOTO_COLUMN}_url`
 const RESOURCE_PHOTO_ACCEPT = '.jpg,.jpeg,.png,.gif,.bmp,image/jpeg,image/png,image/gif,image/bmp'
 const RESOURCE_PHOTO_MAX_BYTES = 10 * 1024 * 1024
 const SUPPORTED_RESOURCE_PHOTO_TYPES = new Set([
@@ -220,46 +217,28 @@ function resourcePhotoThumbnailSrc(value: unknown): string | null {
   return `data:image/jpeg;base64,${base64}`
 }
 
-function resourcePhotoFullUrl(value: unknown): string | null {
-  const url = typeof value === 'string' ? value.trim() : ''
-  if (!url) return null
-
-  return `${url}${url.includes('?') ? '&' : '?'}Full=true`
-}
-
 async function loadResourcePhotoMap(): Promise<Map<string, ResourcePhotoInfo>> {
-  const photoSelectSets = [
-    ['sfsures_resourceid', RESOURCE_PHOTO_COLUMN, RESOURCE_PHOTO_URL_COLUMN],
-    ['sfsures_resourceid', RESOURCE_PHOTO_COLUMN],
-  ]
-  let lastError: unknown = null
+  try {
+    const result = await Sfsures_resourcesService.getAll({
+      select: ['sfsures_resourceid', RESOURCE_PHOTO_COLUMN],
+      orderBy: ['sfsures_name asc'],
+      top: 500,
+    })
 
-  for (const select of photoSelectSets) {
-    try {
-      const result = await Sfsures_resourcesService.getAll({
-        select,
-        orderBy: ['sfsures_name asc'],
-        top: 500,
-      })
-
-      return new Map(
-        ((result.data ?? []) as Array<Sfsures_resources & Record<string, unknown>>).map(
-          (resource) => [
-            resource.sfsures_resourceid,
-            {
-              photoFullUrl: resourcePhotoFullUrl(resource[RESOURCE_PHOTO_URL_COLUMN]),
-              photoThumbnailUrl: resourcePhotoThumbnailSrc(resource[RESOURCE_PHOTO_COLUMN]),
-            },
-          ]
-        )
+    return new Map(
+      ((result.data ?? []) as Array<Sfsures_resources & Record<string, unknown>>).map(
+        (resource) => [
+          resource.sfsures_resourceid,
+          {
+            photoThumbnailUrl: resourcePhotoThumbnailSrc(resource[RESOURCE_PHOTO_COLUMN]),
+          },
+        ]
       )
-    } catch (err) {
-      lastError = err
-    }
+    )
+  } catch (err) {
+    console.warn('Resource photo fields could not be loaded:', err)
+    return new Map()
   }
-
-  console.warn('Resource photo fields could not be loaded:', lastError)
-  return new Map()
 }
 
 function formatBytes(bytes: number): string {
@@ -273,6 +252,54 @@ function isSupportedResourcePhoto(file: File): boolean {
   }
 
   return /\.(jpe?g|png|gif|bmp)$/i.test(file.name)
+}
+
+function readImageAsDataUrl(image: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result)
+        return
+      }
+
+      reject(new Error('The selected image could not be prepared.'))
+    }
+    reader.onerror = () => reject(new Error('The selected image could not be read.'))
+    reader.onabort = () => reject(new Error('Reading the selected image was canceled.'))
+    reader.readAsDataURL(image)
+  })
+}
+
+function resourcePhotoMimeType(bytes: Uint8Array): string {
+  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg'
+  if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) {
+    return 'image/png'
+  }
+  if (bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) return 'image/gif'
+  if (bytes[0] === 0x42 && bytes[1] === 0x4d) return 'image/bmp'
+  if (
+    bytes[0] === 0x52 &&
+    bytes[1] === 0x49 &&
+    bytes[2] === 0x46 &&
+    bytes[3] === 0x46 &&
+    bytes[8] === 0x57 &&
+    bytes[9] === 0x45 &&
+    bytes[10] === 0x42 &&
+    bytes[11] === 0x50
+  ) {
+    return 'image/webp'
+  }
+
+  return 'image/jpeg'
+}
+
+function resourcePhotoBytesAsDataUrl(bytes: Uint8Array): Promise<string> {
+  const copiedBytes = Uint8Array.from(bytes)
+  return readImageAsDataUrl(
+    new Blob([copiedBytes.buffer], { type: resourcePhotoMimeType(copiedBytes) })
+  )
 }
 
 function resourceTypeSnapshot(resourceType: AdminResourceType | ResourceTypeForm) {
@@ -333,9 +360,13 @@ export default function ResourcesScreen() {
   const [modalError, setModalError] = useState('')
   const [pendingResourcePhoto, setPendingResourcePhoto] = useState<PendingResourcePhoto | null>(null)
   const [photoCropSource, setPhotoCropSource] = useState<PhotoCropSource | null>(null)
-  const [photoPreviewUseThumbnail, setPhotoPreviewUseThumbnail] = useState(false)
+  const [photoPreviewFullSrc, setPhotoPreviewFullSrc] = useState<string | null>(null)
+  const [photoPreviewStatus, setPhotoPreviewStatus] = useState<'loading' | 'full' | 'thumbnail'>(
+    'loading'
+  )
   const selectedResourceTypeIdRef = useRef<string | null>(null)
   const selectedResourceIdRef = useRef<string | null>(null)
+  const photoPreviewRequestIdRef = useRef(0)
   const colorPickerRef = useRef<HTMLDivElement | null>(null)
   const dialogRef = useRef<HTMLDivElement | null>(null)
   const resourceListDialogRef = useRef<HTMLDivElement | null>(null)
@@ -414,7 +445,6 @@ export default function ResourcesScreen() {
             calendarColor:
               resource.sfsures_calendarcolor ?? DEFAULT_RESOURCE_COLOR,
             recordStatus: resource.sfsures_recordstatus ?? RESOURCE_STATUS_ACTIVE,
-            photoFullUrl: resourcePhoto?.photoFullUrl ?? null,
             photoThumbnailUrl: resourcePhoto?.photoThumbnailUrl ?? null,
           }
         })
@@ -504,9 +534,7 @@ export default function ResourcesScreen() {
   )
 
   const photoPreviewSrc =
-    photoPreviewResource && photoPreviewUseThumbnail
-      ? photoPreviewResource.photoThumbnailUrl
-      : photoPreviewResource?.photoFullUrl ?? photoPreviewResource?.photoThumbnailUrl ?? null
+    photoPreviewFullSrc ?? photoPreviewResource?.photoThumbnailUrl ?? null
 
   const resourceListResourceType = useMemo(
     () =>
@@ -564,22 +592,6 @@ export default function ResourcesScreen() {
       ? selectedResource?.photoThumbnailUrl ?? null
       : null)
 
-  useEffect(() => {
-    return () => {
-      if (photoCropSource) {
-        URL.revokeObjectURL(photoCropSource.objectUrl)
-      }
-    }
-  }, [photoCropSource])
-
-  useEffect(() => {
-    return () => {
-      if (pendingResourcePhoto) {
-        URL.revokeObjectURL(pendingResourcePhoto.previewUrl)
-      }
-    }
-  }, [pendingResourcePhoto])
-
   function clearResourcePhotoDraft() {
     setPhotoCropSource(null)
     setPendingResourcePhoto(null)
@@ -588,15 +600,45 @@ export default function ResourcesScreen() {
     }
   }
 
-  function openResourcePhotoPreview(resource: AdminResource) {
+  async function openResourcePhotoPreview(resource: AdminResource) {
     if (!resource.photoThumbnailUrl) return
+
+    const requestId = photoPreviewRequestIdRef.current + 1
+    photoPreviewRequestIdRef.current = requestId
     setPhotoPreviewResourceId(resource.resourceId)
-    setPhotoPreviewUseThumbnail(false)
+    setPhotoPreviewFullSrc(null)
+    setPhotoPreviewStatus('loading')
+
+    try {
+      const result = await Sfsures_resourcesService.downloadImage(
+        resource.resourceId,
+        RESOURCE_PHOTO_COLUMN,
+        true
+      )
+      const bytes = result.data
+
+      if (!bytes || bytes.byteLength === 0) {
+        throw new Error('Dataverse returned an empty full-size image.')
+      }
+
+      const fullSizeSrc = await resourcePhotoBytesAsDataUrl(bytes)
+      if (photoPreviewRequestIdRef.current !== requestId) return
+
+      setPhotoPreviewFullSrc(fullSizeSrc)
+      setPhotoPreviewStatus('full')
+    } catch (err) {
+      if (photoPreviewRequestIdRef.current !== requestId) return
+
+      console.warn('The full-size Resource photo could not be loaded:', err)
+      setPhotoPreviewStatus('thumbnail')
+    }
   }
 
   function closeResourcePhotoPreview() {
+    photoPreviewRequestIdRef.current += 1
     setPhotoPreviewResourceId(null)
-    setPhotoPreviewUseThumbnail(false)
+    setPhotoPreviewFullSrc(null)
+    setPhotoPreviewStatus('loading')
   }
 
   function handleResourcePhotoPreviewKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
@@ -610,7 +652,7 @@ export default function ResourcesScreen() {
     resourcePhotoInputRef.current?.click()
   }
 
-  function handleResourcePhotoFileChange(event: ChangeEvent<HTMLInputElement>) {
+  async function handleResourcePhotoFileChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
     event.target.value = ''
 
@@ -629,9 +671,13 @@ export default function ResourcesScreen() {
     }
 
     setModalError('')
-    setPhotoCropSource({
-      objectUrl: URL.createObjectURL(file),
-    })
+
+    try {
+      setPhotoCropSource({ dataUrl: await readImageAsDataUrl(file) })
+    } catch (err) {
+      setPhotoCropSource(null)
+      setModalError(err instanceof Error ? err.message : 'The selected image could not be read.')
+    }
   }
 
   function handleCroppedResourcePhoto(photo: PendingResourcePhoto) {
@@ -1366,7 +1412,7 @@ export default function ResourcesScreen() {
                         <button
                           type="button"
                           className={styles.resourcePhotoThumbButton}
-                          onClick={() => openResourcePhotoPreview(selectedResource)}
+                          onClick={() => void openResourcePhotoPreview(selectedResource)}
                         >
                           <img
                             src={selectedResource.photoThumbnailUrl}
@@ -1513,8 +1559,9 @@ export default function ResourcesScreen() {
                 src={photoPreviewSrc}
                 alt={`${photoPreviewResource.name} resource photo`}
                 onError={() => {
-                  if (!photoPreviewUseThumbnail) {
-                    setPhotoPreviewUseThumbnail(true)
+                  if (photoPreviewStatus === 'full') {
+                    setPhotoPreviewFullSrc(null)
+                    setPhotoPreviewStatus('thumbnail')
                   }
                 }}
               />
@@ -1522,7 +1569,13 @@ export default function ResourcesScreen() {
 
             <footer className={styles.modalFooter}>
               <div className={styles.modalFooterStatus}>
-                <span>{photoPreviewUseThumbnail ? 'Showing thumbnail preview' : 'Showing photo'}</span>
+                <span role="status">
+                  {photoPreviewStatus === 'loading'
+                    ? 'Loading full-size photo...'
+                    : photoPreviewStatus === 'full'
+                      ? 'Showing full-size photo'
+                      : 'Full-size photo unavailable; showing thumbnail'}
+                </span>
               </div>
               <div className={styles.modalFooterActions}>
                 <button
@@ -1697,67 +1750,6 @@ export default function ResourcesScreen() {
                   </label>
 
                   <div className={styles.field}>
-                    <span>Resource photo</span>
-                    <div className={styles.resourcePhotoEditor}>
-                      {resourceFormPhotoPreviewUrl ? (
-                        <img
-                          className={styles.resourcePhotoFormPreview}
-                          src={resourceFormPhotoPreviewUrl}
-                          alt="Selected resource preview"
-                        />
-                      ) : (
-                        <div className={styles.resourcePhotoFormPlaceholder}>
-                          No photo selected
-                        </div>
-                      )}
-
-                      <div className={styles.resourcePhotoEditorActions}>
-                        <button
-                          type="button"
-                          className={styles.secondaryButton}
-                          onClick={handleResourcePhotoButtonClick}
-                        >
-                          {resourceFormPhotoPreviewUrl ? 'Change Photo' : 'Upload Photo'}
-                        </button>
-                        <p className={styles.fieldHint}>
-                          JPG, PNG, GIF, or BMP. Max {formatBytes(RESOURCE_PHOTO_MAX_BYTES)}.
-                        </p>
-                      </div>
-
-                      <input
-                        ref={resourcePhotoInputRef}
-                        type="file"
-                        accept={RESOURCE_PHOTO_ACCEPT}
-                        className={styles.srOnly}
-                        onChange={handleResourcePhotoFileChange}
-                      />
-                    </div>
-
-                    {pendingResourcePhoto && (
-                      <p className={styles.fieldHint}>
-                        Cropped photo ready ({formatBytes(pendingResourcePhoto.byteSize)}). It
-                        will upload when you save this resource.
-                      </p>
-                    )}
-
-                    {photoCropSource && (
-                      <Suspense
-                        fallback={
-                          <div className={styles.inlineLoading} role="status">
-                            Loading cropper...
-                          </div>
-                        }
-                      >
-                        <ResourcePhotoCropper
-                          imageUrl={photoCropSource.objectUrl}
-                          onCancel={() => setPhotoCropSource(null)}
-                          onUsePhoto={handleCroppedResourcePhoto}
-                        />
-                      </Suspense>
-                    )}
-                  </div>
-
-                  <div className={styles.field}>
                     <span id={colorPickerLabelId}>Calendar color</span>
                     <div className={styles.colorSelectControl} ref={colorPickerRef}>
                       <button
@@ -1833,6 +1825,67 @@ export default function ResourcesScreen() {
                         </div>
                       )}
                     </div>
+                  </div>
+
+                  <div className={styles.field}>
+                    <span>Resource photo</span>
+                    <div className={styles.resourcePhotoEditor}>
+                      {resourceFormPhotoPreviewUrl ? (
+                        <img
+                          className={styles.resourcePhotoFormPreview}
+                          src={resourceFormPhotoPreviewUrl}
+                          alt="Selected resource preview"
+                        />
+                      ) : (
+                        <div className={styles.resourcePhotoFormPlaceholder}>
+                          No photo selected
+                        </div>
+                      )}
+
+                      <div className={styles.resourcePhotoEditorActions}>
+                        <button
+                          type="button"
+                          className={styles.secondaryButton}
+                          onClick={handleResourcePhotoButtonClick}
+                        >
+                          {resourceFormPhotoPreviewUrl ? 'Change Photo' : 'Upload Photo'}
+                        </button>
+                        <p className={styles.fieldHint}>
+                          JPG, PNG, GIF, or BMP. Max {formatBytes(RESOURCE_PHOTO_MAX_BYTES)}.
+                        </p>
+                      </div>
+
+                      <input
+                        ref={resourcePhotoInputRef}
+                        type="file"
+                        accept={RESOURCE_PHOTO_ACCEPT}
+                        className={styles.srOnly}
+                        onChange={handleResourcePhotoFileChange}
+                      />
+                    </div>
+
+                    {pendingResourcePhoto && (
+                      <p className={styles.fieldHint}>
+                        Cropped photo ready ({formatBytes(pendingResourcePhoto.byteSize)}). It
+                        will upload when you save this resource.
+                      </p>
+                    )}
+
+                    {photoCropSource && (
+                      <Suspense
+                        fallback={
+                          <div className={styles.inlineLoading} role="status">
+                            Loading cropper...
+                          </div>
+                        }
+                      >
+                        <ResourcePhotoCropper
+                          imageUrl={photoCropSource.dataUrl}
+                          onCancel={() => setPhotoCropSource(null)}
+                          onUsePhoto={handleCroppedResourcePhoto}
+                        />
+                      </Suspense>
+                    )}
                   </div>
                 </div>
               )}
