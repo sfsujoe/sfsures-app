@@ -1,8 +1,9 @@
 import type { Sfsures_appusers } from '../generated/models/Sfsures_appusersModel'
 import { Sfsures_appusersService } from '../generated/services/Sfsures_appusersService'
-import { Sfsures_groupresourceaccessesService } from '../generated/services/Sfsures_groupresourceaccessesService'
 import { Sfsures_groupresourcetypeaccessesService } from '../generated/services/Sfsures_groupresourcetypeaccessesService'
+import { Sfsures_groupsService } from '../generated/services/Sfsures_groupsService'
 import { Sfsures_usergroupassignmentsService } from '../generated/services/Sfsures_usergroupassignmentsService'
+import { APP_ADMIN_GROUP_KEY, REPORT_VIEWERS_GROUP_KEY } from '../auth/UserContext'
 
 const RECORD_STATUS_ACTIVE = 997330000
 const ACCESS_LEVEL_BOOK = 997330000
@@ -48,10 +49,9 @@ export async function loadMappedOwner(
 }
 
 export async function loadEligibleReservationOwners(
-  resourceId: string,
   resourceTypeId: string
 ): Promise<ReservationOwnerOption[]> {
-  const [usersResult, assignmentsResult, resourceAccessResult, typeAccessResult] =
+  const [usersResult, assignmentsResult, typeAccessResult, groupsResult] =
     await Promise.all([
       Sfsures_appusersService.getAll({
         select: [
@@ -71,14 +71,6 @@ export async function loadEligibleReservationOwners(
         filter: 'statecode eq 0',
         top: 5000,
       }),
-      Sfsures_groupresourceaccessesService.getAll({
-        select: ['_sfsures_group_value', '_sfsures_resource_value', 'sfsures_accesslevel'],
-        filter:
-          `_sfsures_resource_value eq ${resourceId}` +
-          ` and sfsures_accesslevel eq ${ACCESS_LEVEL_BOOK}` +
-          ' and statecode eq 0',
-        top: 500,
-      }),
       Sfsures_groupresourcetypeaccessesService.getAll({
         select: ['_sfsures_group_value', '_sfsures_resourcetype_value', 'sfsures_accesslevel'],
         filter:
@@ -87,14 +79,29 @@ export async function loadEligibleReservationOwners(
           ' and statecode eq 0',
         top: 500,
       }),
+      Sfsures_groupsService.getAll({
+        select: ['sfsures_groupid', 'sfsures_groupkey', 'sfsures_recordstatus'],
+        filter: `sfsures_recordstatus eq ${RECORD_STATUS_ACTIVE}`,
+        top: 500,
+      }),
     ])
 
+  const protectedGroupIds = new Set(
+    (groupsResult.data ?? [])
+      .filter((group) => {
+        const key = group.sfsures_groupkey?.trim().toUpperCase()
+        return key === APP_ADMIN_GROUP_KEY || key === REPORT_VIEWERS_GROUP_KEY
+      })
+      .map((group) => group.sfsures_groupid)
+  )
   const bookingGroupIds = new Set<string>()
-  for (const access of resourceAccessResult.data ?? []) {
-    if (access._sfsures_group_value) bookingGroupIds.add(access._sfsures_group_value)
-  }
   for (const access of typeAccessResult.data ?? []) {
-    if (access._sfsures_group_value) bookingGroupIds.add(access._sfsures_group_value)
+    if (
+      access._sfsures_group_value &&
+      !protectedGroupIds.has(access._sfsures_group_value)
+    ) {
+      bookingGroupIds.add(access._sfsures_group_value)
+    }
   }
 
   const eligibleUserIds = new Set<string>()

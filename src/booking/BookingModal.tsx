@@ -13,12 +13,12 @@
  *   5. Show an in-dialog confirmation with OK focused by default
  *   6. If conflicts -> show details, don't write
  *
- * The Booking Owner lookup is set from UserContext (the authenticated user's App User
- * record, populated by AccessGate on startup). Series is null (single reservation).
+ * The Booking Owner defaults to the authenticated App User. App Admins may select an
+ * eligible active/mapped owner when booking on another user's behalf.
  *
- * Resource-scope check (group membership) is TODO — for now the picker shows
- * reservable resources. The Dataverse security role is still the real boundary;
- * this is a UX filter, not a security gate.
+ * The picker includes only active resources in active Resource Types for which the
+ * signed-in user's groups grant Book access. Individual Resource access rows are
+ * intentionally ignored. Dataverse security roles remain the real boundary.
  *
  * Accessibility:
  *   - role="dialog" + aria-modal + aria-labelledby (named by the visible title)
@@ -42,6 +42,7 @@ import { Sfsures_blackoutwindowsService } from '../generated/services/Sfsures_bl
 import { useTheme } from '../theme/ThemeContext'
 import { useCurrentUser } from '../auth/UserContext'
 import { useFocusTrap } from '../a11y/useFocusTrap'
+import { loadPermittedResourceTypeIds } from '../auth/resourceTypePermissions'
 import { AUDIT_ACTION_TYPES, AUDIT_TARGET_TYPES, writeAuditLog } from '../audit/auditLog'
 import {
   loadEligibleReservationOwners,
@@ -597,9 +598,8 @@ export function BookingModal({ start, end, initialReservation, initialSeries, on
   useEffect(() => {
     const load = async () => {
       try {
-        // TODO: filter by the user's group resource access (junction tables).
-        // For now, show all active resources whose Resource Type is active.
-        const [resourceTypeResult, resourceResult] = await Promise.all([
+        if (!currentUser) throw new Error('User identity is not available.')
+        const [resourceTypeResult, resourceResult, permittedResourceTypeIds] = await Promise.all([
           Sfsures_resourcetypesService.getAll({
             select: ['sfsures_resourcetypeid', 'sfsures_status'],
             filter: `sfsures_status eq ${RESOURCE_TYPE_STATUS_ACTIVE}`,
@@ -616,12 +616,21 @@ export function BookingModal({ start, end, initialReservation, initialSeries, on
             orderBy: ['sfsures_name asc'],
             top: 500,
           }),
+          loadPermittedResourceTypeIds(
+            currentUser.groups,
+            'book'
+          ),
         ])
 
         const activeResourceTypeIds = new Set(
           ((resourceTypeResult.data ?? []) as Sfsures_resourcetypes[])
             .map((resourceType) => resourceType.sfsures_resourcetypeid)
-            .filter((id): id is string => typeof id === 'string' && id.length > 0)
+            .filter(
+              (id): id is string =>
+                typeof id === 'string' &&
+                id.length > 0 &&
+                (currentUser.isAppAdmin || permittedResourceTypeIds.has(id))
+            )
         )
 
         const opts: ResourceOption[] = ((resourceResult.data ?? []) as Sfsures_resources[])
@@ -647,7 +656,7 @@ export function BookingModal({ start, end, initialReservation, initialSeries, on
     }
 
     load()
-  }, [initialReservation?.resourceId, initialSeries?.resourceId])
+  }, [currentUser, initialReservation?.resourceId, initialSeries?.resourceId])
 
   useEffect(() => {
     let cancelled = false
@@ -660,11 +669,23 @@ export function BookingModal({ start, end, initialReservation, initialSeries, on
 
       setOwnersLoading(true)
       try {
-        const loadedOwners = currentUser.isAppAdmin
-          ? await loadEligibleReservationOwners(selectedResourceId, selectedResourceTypeId)
-          : [await loadMappedOwner(currentUser.appUserId)].filter(
-              (owner): owner is ReservationOwnerOption => owner !== null
-            )
+        let loadedOwners: ReservationOwnerOption[]
+        if (currentUser.isAppAdmin) {
+          const [eligibleOwners, adminOwner] = await Promise.all([
+            loadEligibleReservationOwners(selectedResourceTypeId),
+            loadMappedOwner(currentUser.appUserId),
+          ])
+          loadedOwners = adminOwner
+            ? [
+                adminOwner,
+                ...eligibleOwners.filter((owner) => owner.appUserId !== adminOwner.appUserId),
+              ]
+            : eligibleOwners
+        } else {
+          loadedOwners = [await loadMappedOwner(currentUser.appUserId)].filter(
+            (owner): owner is ReservationOwnerOption => owner !== null
+          )
+        }
 
         if (cancelled) return
         setOwners(loadedOwners)

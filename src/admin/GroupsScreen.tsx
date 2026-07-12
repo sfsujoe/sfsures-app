@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { AUDIT_ACTION_TYPES, AUDIT_TARGET_TYPES, writeAuditLog } from '../audit/auditLog'
 import { useFocusTrap } from '../a11y/useFocusTrap'
-import { APP_ADMIN_GROUP_KEY, useCurrentUser } from '../auth/UserContext'
+import { APP_ADMIN_GROUP_KEY, REPORT_VIEWERS_GROUP_KEY, useCurrentUser } from '../auth/UserContext'
 import { Sfsures_appusersService } from '../generated/services/Sfsures_appusersService'
 import { Sfsures_groupsService } from '../generated/services/Sfsures_groupsService'
 import { Sfsures_usergroupassignmentsService } from '../generated/services/Sfsures_usergroupassignmentsService'
@@ -82,6 +82,12 @@ function userDisplayName(user: Pick<AdminUser, 'displayName' | 'email' | 'sfStat
 
 function groupSortKey(group: AdminGroup): string {
   return `${group.isSystemGroup ? '0' : '1'}-${group.name.toLowerCase()}`
+}
+
+function isPermissionProtectedGroup(group: AdminGroup | null): boolean {
+  return (
+    group?.groupKey === APP_ADMIN_GROUP_KEY || group?.groupKey === REPORT_VIEWERS_GROUP_KEY
+  )
 }
 
 function userMatchesSearch(user: AdminUser, search: string): boolean {
@@ -372,6 +378,10 @@ export default function GroupsScreen() {
   }
 
   function openPermissionsDialog() {
+    if (isPermissionProtectedGroup(selectedGroup)) {
+      setError('Resource Type permissions cannot be assigned to this system group.')
+      return
+    }
     const nextDraft: Record<string, PermissionLevel> = {}
     for (const resourceType of resourceTypes) nextDraft[resourceType.resourceTypeId] = 'none'
     for (const access of selectedGroupAccesses) {
@@ -386,6 +396,11 @@ export default function GroupsScreen() {
 
   async function handleSavePermissions() {
     if (!selectedGroup) return
+    if (isPermissionProtectedGroup(selectedGroup)) {
+      setActiveDialog(null)
+      setError('Resource Type permissions cannot be assigned to this system group.')
+      return
+    }
     setSavingPermissions(true)
     setError('')
     setStatus('')
@@ -782,9 +797,11 @@ export default function GroupsScreen() {
                   )}
 
                   <div className={styles.groupActionCards}>
-                    <button type="button" className={styles.secondaryButton} onClick={openPermissionsDialog}>
-                      View/Edit Permissions
-                    </button>
+                    {!isPermissionProtectedGroup(selectedGroup) && (
+                      <button type="button" className={styles.secondaryButton} onClick={openPermissionsDialog}>
+                        View/Edit Permissions
+                      </button>
+                    )}
                     <button type="button" className={styles.secondaryButton} onClick={openMembersDialog}>
                       View/Edit Members
                     </button>

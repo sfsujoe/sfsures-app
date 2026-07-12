@@ -1356,6 +1356,10 @@
   min-height: 44px;
 }
 
+.groupActionCards .secondaryButton:only-child {
+  grid-column: 1 / -1;
+}
+
 .permissionHelp {
   margin: 0;
   color: #555555;

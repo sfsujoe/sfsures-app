@@ -14,6 +14,8 @@
  *   - Range-based loading: fetches occurrences and blackout windows for a
  *     ±90-day window around today on mount. FullCalendar's datesSet callback
  *     triggers a re-fetch when the user navigates outside that window.
+ *   - Resource visibility is group-based and Resource Type-only. View and Book
+ *     permissions show calendar data; individual Resource access rows are ignored.
  *
  * Accessibility:
  *   - "New reservation" toolbar button gives a keyboard-operable path to create a
@@ -40,6 +42,7 @@ import { Sfsures_reservationseriesesService } from '../generated/services/Sfsure
 import { Sfsures_blackoutwindowsService } from '../generated/services/Sfsures_blackoutwindowsService'
 import { Sfsures_appusersService } from '../generated/services/Sfsures_appusersService'
 import { Sfsures_resourcesService } from '../generated/services/Sfsures_resourcesService'
+import { Sfsures_resourcetypesService } from '../generated/services/Sfsures_resourcetypesService'
 import { Office365UsersService } from '../generated/services/Office365UsersService'
 import type { Sfsures_resourcessfsures_calendarcolor } from '../generated/models/Sfsures_resourcesModel'
 import { useTheme } from '../theme/ThemeContext'
@@ -49,6 +52,7 @@ import {
   type ResourceColorOption,
 } from '../theme/resourceColors'
 import { useCurrentUser } from '../auth/UserContext'
+import { loadPermittedResourceTypeIds } from '../auth/resourceTypePermissions'
 import { BookingModal, type EditableReservation, type EditableReservationSeries } from '../booking/BookingModal'
 import { useFocusTrap } from '../a11y/useFocusTrap'
 import sfsuDefaultLogoUrl from '../assets/sfsu-logo.png?inline'
@@ -77,12 +81,14 @@ interface BlackoutRow {
   sfsures_start?: string
   sfsures_end?: string
   sfsures_reason?: string
+  _sfsures_resource_value?: string
   'sfsures_Resource@OData.Community.Display.V1.FormattedValue'?: string
 }
 
 interface ResourceRow {
   sfsures_resourceid?: string
   sfsures_calendarcolor?: Sfsures_resourcessfsures_calendarcolor
+  _sfsures_resourcetype_value?: string
 }
 
 interface ReservationOwnerDetails {
@@ -489,7 +495,54 @@ export function CalendarScreen({ onOpenAdmin }: CalendarScreenProps) {
       const endIso = rangeEnd.toISOString().split('.')[0] + 'Z'
 
       try {
-        const [occResult, blackoutResult, resourceResult] = await Promise.all([
+        if (!currentUser) throw new Error('User identity is not available.')
+        const [permittedResourceTypeIds, resourceTypeResult, resourceResult] = await Promise.all([
+          loadPermittedResourceTypeIds(
+            currentUser.groups,
+            'view'
+          ),
+          Sfsures_resourcetypesService.getAll({
+            select: ['sfsures_resourcetypeid', 'sfsures_status'],
+            filter: 'sfsures_status eq 997330000',
+            top: 500,
+          }),
+          Sfsures_resourcesService.getAll({
+            select: [
+              'sfsures_resourceid',
+              'sfsures_calendarcolor',
+              '_sfsures_resourcetype_value',
+            ],
+            filter: `sfsures_recordstatus eq ${RECORD_STATUS_ACTIVE}`,
+            orderBy: ['sfsures_name asc'],
+            top: 500,
+          }),
+        ])
+        const activePermittedTypeIds = new Set(
+          (resourceTypeResult.data ?? [])
+            .map((resourceType) => resourceType.sfsures_resourcetypeid)
+            .filter((id) => currentUser.isAppAdmin || permittedResourceTypeIds.has(id))
+        )
+        const permittedResources = ((resourceResult.data ?? []) as ResourceRow[]).filter(
+          (resource) =>
+            !!resource.sfsures_resourceid &&
+            !!resource._sfsures_resourcetype_value &&
+            activePermittedTypeIds.has(resource._sfsures_resourcetype_value)
+        )
+        const permittedResourceIds = permittedResources
+          .map((resource) => resource.sfsures_resourceid)
+          .filter((id): id is string => !!id)
+
+        if (permittedResourceIds.length === 0) {
+          setEvents([])
+          loadedRangeRef.current = { start: rangeStart, end: rangeEnd }
+          setLoadStatus('ready')
+          return
+        }
+
+        const resourceFilter = `(${permittedResourceIds
+          .map((resourceId) => `_sfsures_resource_value eq ${resourceId}`)
+          .join(' or ')})`
+        const [occResult, blackoutResult] = await Promise.all([
           Sfsures_reservationoccurrencesService.getAll({
             select: [
               'sfsures_reservationoccurrenceid',
@@ -505,7 +558,8 @@ export function CalendarScreen({ onOpenAdmin }: CalendarScreenProps) {
             filter:
               `sfsures_recordstatus eq 997330000` +
               ` and sfsures_start lt ${endIso}` +
-              ` and sfsures_end gt ${startIso}`,
+              ` and sfsures_end gt ${startIso}` +
+              ` and ${resourceFilter}`,
             orderBy: ['sfsures_start asc'],
             top: 500,
           }),
@@ -516,25 +570,21 @@ export function CalendarScreen({ onOpenAdmin }: CalendarScreenProps) {
               'sfsures_start',
               'sfsures_end',
               'sfsures_reason',
+              '_sfsures_resource_value',
             ],
             filter:
               `sfsures_start lt ${endIso}` +
-              ` and sfsures_end gt ${startIso}`,
+              ` and sfsures_end gt ${startIso}` +
+              ` and ${resourceFilter}`,
             orderBy: ['sfsures_start asc'],
             top: 200,
-          }),
-          Sfsures_resourcesService.getAll({
-            select: ['sfsures_resourceid', 'sfsures_calendarcolor'],
-            filter: `sfsures_recordstatus eq ${RECORD_STATUS_ACTIVE}`,
-            orderBy: ['sfsures_name asc'],
-            top: 500,
           }),
         ])
 
         const fallbackResourceColor = resourceColorForBackground(theme.primaryColor)
         const resourceColorsById = new Map<string, ResourceColorOption>()
 
-        for (const row of (resourceResult.data ?? []) as ResourceRow[]) {
+        for (const row of permittedResources) {
           const resourceId = row.sfsures_resourceid
           const resourceColor = resourceColorByValue(row.sfsures_calendarcolor)
 
@@ -560,7 +610,7 @@ export function CalendarScreen({ onOpenAdmin }: CalendarScreenProps) {
         setLoadStatus('error')
       }
     },
-    [theme.primaryColor, theme.accentColor]
+    [currentUser, theme.primaryColor, theme.accentColor]
   )
 
   // Initial load: ±90 days around today.
