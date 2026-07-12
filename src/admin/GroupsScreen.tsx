@@ -1,12 +1,17 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { AUDIT_ACTION_TYPES, AUDIT_TARGET_TYPES, writeAuditLog } from '../audit/auditLog'
+import { useFocusTrap } from '../a11y/useFocusTrap'
 import { APP_ADMIN_GROUP_KEY, useCurrentUser } from '../auth/UserContext'
 import { Sfsures_appusersService } from '../generated/services/Sfsures_appusersService'
 import { Sfsures_groupsService } from '../generated/services/Sfsures_groupsService'
 import { Sfsures_usergroupassignmentsService } from '../generated/services/Sfsures_usergroupassignmentsService'
+import { Sfsures_groupresourcetypeaccessesService } from '../generated/services/Sfsures_groupresourcetypeaccessesService'
+import { Sfsures_resourcetypesService } from '../generated/services/Sfsures_resourcetypesService'
 import type { Sfsures_appusers } from '../generated/models/Sfsures_appusersModel'
 import type { Sfsures_groups } from '../generated/models/Sfsures_groupsModel'
 import type { Sfsures_usergroupassignments } from '../generated/models/Sfsures_usergroupassignmentsModel'
+import type { Sfsures_groupresourcetypeaccesses } from '../generated/models/Sfsures_groupresourcetypeaccessesModel'
+import type { Sfsures_resourcetypes } from '../generated/models/Sfsures_resourcetypesModel'
 import styles from './AdminApp.module.css'
 
 interface AdminGroup {
@@ -31,8 +36,28 @@ interface UserGroupAssignment {
   groupId: string
 }
 
+interface ResourceTypeOption {
+  resourceTypeId: string
+  name: string
+  description: string
+  isActive: boolean
+}
+
+interface ResourceTypeAccess {
+  accessId: string
+  groupId: string
+  resourceTypeId: string
+  accessLevel: PermissionLevel
+}
+
+type PermissionLevel = 'none' | 'view' | 'book'
+type ActiveDialog = 'members' | 'permissions' | null
+
 const RECORD_STATUS_ACTIVE = 997330000
 const RECORD_STATUS_DISABLED = 997330001
+const RESOURCE_TYPE_STATUS_ACTIVE = 997330000
+const ACCESS_LEVEL_BOOK = 997330000
+const ACCESS_LEVEL_VIEW = 997330001
 
 function normalizeGroupKey(groupKey: string | undefined | null): string {
   return groupKey?.trim().toUpperCase() ?? ''
@@ -101,20 +126,30 @@ export default function GroupsScreen() {
   const [groups, setGroups] = useState<AdminGroup[]>([])
   const [users, setUsers] = useState<AdminUser[]>([])
   const [assignments, setAssignments] = useState<UserGroupAssignment[]>([])
+  const [resourceTypes, setResourceTypes] = useState<ResourceTypeOption[]>([])
+  const [resourceTypeAccesses, setResourceTypeAccesses] = useState<ResourceTypeAccess[]>([])
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null)
   const [groupSearch, setGroupSearch] = useState('')
   const [memberSearch, setMemberSearch] = useState('')
+  const [permissionSearch, setPermissionSearch] = useState('')
+  const [permissionDraft, setPermissionDraft] = useState<Record<string, PermissionLevel>>({})
+  const [activeDialog, setActiveDialog] = useState<ActiveDialog>(null)
   const [newGroupName, setNewGroupName] = useState('')
   const [newGroupDescription, setNewGroupDescription] = useState('')
   const [loadStatus, setLoadStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [savingGroup, setSavingGroup] = useState(false)
   const [savingMembershipUserId, setSavingMembershipUserId] = useState<string | null>(null)
+  const [savingPermissions, setSavingPermissions] = useState(false)
   const [error, setError] = useState('')
   const [status, setStatus] = useState('')
+  const membersDialogRef = useRef<HTMLDivElement>(null)
+  const permissionsDialogRef = useRef<HTMLDivElement>(null)
+  useFocusTrap(membersDialogRef, activeDialog === 'members')
+  useFocusTrap(permissionsDialogRef, activeDialog === 'permissions')
 
   const loadGroups = useCallback(async () => {
     try {
-      const [groupResult, userResult, assignmentResult] = await Promise.all([
+      const [groupResult, userResult, assignmentResult, resourceTypeResult, accessResult] = await Promise.all([
         Sfsures_groupsService.getAll({
           select: [
             'sfsures_groupid',
@@ -145,6 +180,26 @@ export default function GroupsScreen() {
             '_sfsures_user_value',
             '_sfsures_group_value',
             'statecode',
+          ],
+          filter: 'statecode eq 0',
+          top: 5000,
+        }),
+        Sfsures_resourcetypesService.getAll({
+          select: [
+            'sfsures_resourcetypeid',
+            'sfsures_name',
+            'sfsures_description',
+            'sfsures_status',
+          ],
+          orderBy: ['sfsures_name asc'],
+          top: 500,
+        }),
+        Sfsures_groupresourcetypeaccessesService.getAll({
+          select: [
+            'sfsures_groupresourcetypeaccessid',
+            '_sfsures_group_value',
+            '_sfsures_resourcetype_value',
+            'sfsures_accesslevel',
           ],
           filter: 'statecode eq 0',
           top: 5000,
@@ -185,9 +240,37 @@ export default function GroupsScreen() {
           (assignment) => userIds.has(assignment.userId) && groupIds.has(assignment.groupId)
         )
 
+      const loadedResourceTypes = ((resourceTypeResult.data ?? []) as Sfsures_resourcetypes[])
+        .map((resourceType) => ({
+          resourceTypeId: resourceType.sfsures_resourcetypeid,
+          name: resourceType.sfsures_name,
+          description: resourceType.sfsures_description ?? '',
+          isActive: resourceType.sfsures_status === RESOURCE_TYPE_STATUS_ACTIVE,
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name))
+
+      const resourceTypeIds = new Set(
+        loadedResourceTypes.map((resourceType) => resourceType.resourceTypeId)
+      )
+      const loadedAccesses = ((accessResult.data ?? []) as Sfsures_groupresourcetypeaccesses[])
+        .map((access) => ({
+          accessId: access.sfsures_groupresourcetypeaccessid,
+          groupId: access._sfsures_group_value ?? '',
+          resourceTypeId: access._sfsures_resourcetype_value ?? '',
+          accessLevel:
+            access.sfsures_accesslevel === ACCESS_LEVEL_BOOK
+              ? ('book' as const)
+              : ('view' as const),
+        }))
+        .filter(
+          (access) => groupIds.has(access.groupId) && resourceTypeIds.has(access.resourceTypeId)
+        )
+
       setGroups(loadedGroups)
       setUsers(loadedUsers)
       setAssignments(loadedAssignments)
+      setResourceTypes(loadedResourceTypes)
+      setResourceTypeAccesses(loadedAccesses)
       setSelectedGroupId((current) =>
         current && loadedGroups.some((group) => group.groupId === current)
           ? current
@@ -201,6 +284,17 @@ export default function GroupsScreen() {
       setLoadStatus('error')
     }
   }, [])
+
+  useEffect(() => {
+    if (!activeDialog) return
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !savingPermissions && !savingMembershipUserId) {
+        setActiveDialog(null)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [activeDialog, savingMembershipUserId, savingPermissions])
 
   useEffect(() => {
     queueMicrotask(() => void loadGroups())
@@ -253,6 +347,125 @@ export default function GroupsScreen() {
     }
     return counts
   }, [assignments])
+
+  const selectedGroupAccesses = useMemo(
+    () => resourceTypeAccesses.filter((access) => access.groupId === selectedGroupId),
+    [resourceTypeAccesses, selectedGroupId]
+  )
+
+  const selectedGroupPermissionCount = selectedGroupAccesses.length
+  const filteredResourceTypes = useMemo(() => {
+    const search = permissionSearch.trim().toLowerCase()
+    if (!search) return resourceTypes
+    return resourceTypes.filter((resourceType) =>
+      [resourceType.name, resourceType.description].some((value) =>
+        value.toLowerCase().includes(search)
+      )
+    )
+  }, [permissionSearch, resourceTypes])
+
+  function openMembersDialog() {
+    setMemberSearch('')
+    setError('')
+    setStatus('')
+    setActiveDialog('members')
+  }
+
+  function openPermissionsDialog() {
+    const nextDraft: Record<string, PermissionLevel> = {}
+    for (const resourceType of resourceTypes) nextDraft[resourceType.resourceTypeId] = 'none'
+    for (const access of selectedGroupAccesses) {
+      nextDraft[access.resourceTypeId] = access.accessLevel
+    }
+    setPermissionDraft(nextDraft)
+    setPermissionSearch('')
+    setError('')
+    setStatus('')
+    setActiveDialog('permissions')
+  }
+
+  async function handleSavePermissions() {
+    if (!selectedGroup) return
+    setSavingPermissions(true)
+    setError('')
+    setStatus('')
+
+    try {
+      const beforeState = Object.fromEntries(
+        resourceTypes.map((resourceType) => [
+          resourceType.resourceTypeId,
+          selectedGroupAccesses.find(
+            (access) => access.resourceTypeId === resourceType.resourceTypeId
+          )?.accessLevel ?? 'none',
+        ])
+      )
+      const writes: Promise<unknown>[] = []
+
+      for (const resourceType of resourceTypes) {
+        const existing = selectedGroupAccesses.find(
+          (access) => access.resourceTypeId === resourceType.resourceTypeId
+        )
+        const desired = permissionDraft[resourceType.resourceTypeId] ?? 'none'
+        if (existing?.accessLevel === desired || (!existing && desired === 'none')) continue
+
+        if (desired === 'none' && existing) {
+          writes.push(Sfsures_groupresourcetypeaccessesService.delete(existing.accessId))
+        } else if (existing) {
+          writes.push(
+            Sfsures_groupresourcetypeaccessesService.update(existing.accessId, {
+              sfsures_accesslevel:
+                desired === 'book' ? ACCESS_LEVEL_BOOK : ACCESS_LEVEL_VIEW,
+            } as unknown as Parameters<typeof Sfsures_groupresourcetypeaccessesService.update>[1])
+          )
+        } else {
+          writes.push(
+            Sfsures_groupresourcetypeaccessesService.create({
+              sfsures_name: `${selectedGroup.name} - ${resourceType.name}`,
+              sfsures_accesslevel:
+                desired === 'book' ? ACCESS_LEVEL_BOOK : ACCESS_LEVEL_VIEW,
+              'sfsures_Group@odata.bind': `/sfsures_groups(${selectedGroup.groupId})`,
+              'sfsures_ResourceType@odata.bind':
+                `/sfsures_resourcetypes(${resourceType.resourceTypeId})`,
+              statecode: 0,
+              statuscode: 1,
+            } as unknown as Parameters<typeof Sfsures_groupresourcetypeaccessesService.create>[0])
+          )
+        }
+      }
+
+      if (writes.length === 0) {
+        setActiveDialog(null)
+        setStatus('No permission changes to save.')
+        return
+      }
+
+      await Promise.all(writes)
+      const auditWritten = await writeAuditLog({
+        actor: currentUser,
+        actionType: AUDIT_ACTION_TYPES.groupEdited,
+        targetType: AUDIT_TARGET_TYPES.group,
+        targetId: selectedGroup.groupId,
+        targetKey: selectedGroup.groupKey,
+        targetLabel: selectedGroup.name,
+        beforeState: { resourceTypePermissions: beforeState },
+        afterState: { resourceTypePermissions: permissionDraft },
+        details: { source: 'Admin Groups permissions dialog' },
+      })
+
+      await loadGroups()
+      setActiveDialog(null)
+      setStatus(
+        auditWritten
+          ? 'Resource Type permissions updated.'
+          : 'Permissions updated. Audit log could not be written.'
+      )
+    } catch (err) {
+      console.error('Update Resource Type permissions failed:', err)
+      setError(err instanceof Error ? err.message : 'Permissions could not be updated.')
+    } finally {
+      setSavingPermissions(false)
+    }
+  }
 
   async function handleCreateGroup(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -558,66 +771,24 @@ export default function GroupsScreen() {
                       <dt>Type</dt>
                       <dd>{selectedGroup.isSystemGroup ? 'System Group' : 'Custom Group'}</dd>
                     </div>
+                    <div>
+                      <dt>Resource Type permissions</dt>
+                      <dd>{selectedGroupPermissionCount}</dd>
+                    </div>
                   </dl>
 
                   {selectedGroup.description && (
                     <p className={styles.groupDescription}>{selectedGroup.description}</p>
                   )}
 
-                  <section className={styles.groupEditor} aria-labelledby="group-members-heading">
-                    <div className={styles.sectionHeader}>
-                      <h3 id="group-members-heading">Membership</h3>
-                    </div>
-
-                    <label className={styles.field}>
-                      <span>Search users</span>
-                      <input
-                        className={styles.input}
-                        value={memberSearch}
-                        onChange={(event) => setMemberSearch(event.target.value)}
-                      />
-                    </label>
-
-                    <div className={styles.groupMembershipList}>
-                      {filteredMembershipUsers.length === 0 ? (
-                        <p className={styles.emptyState}>No users found.</p>
-                      ) : (
-                        filteredMembershipUsers.map((user) => {
-                          const checked = selectedGroupMemberUserIds.has(user.appUserId)
-                          const isLockedSelfAdmin =
-                            checked &&
-                            user.appUserId === currentUser?.appUserId &&
-                            selectedGroup.groupKey === APP_ADMIN_GROUP_KEY
-
-                          return (
-                            <label key={user.appUserId} className={styles.groupMemberCheckItem}>
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                disabled={
-                                  savingMembershipUserId === user.appUserId || isLockedSelfAdmin
-                                }
-                                onChange={(event) =>
-                                  void handleToggleMembership(user, event.target.checked)
-                                }
-                              />
-                              <span className={styles.groupMemberText}>
-                                <strong>{userDisplayName(user)}</strong>
-                                <small>{user.email || user.sfStateId}</small>
-                              </span>
-                              {user.recordStatus === RECORD_STATUS_DISABLED && (
-                                <span
-                                  className={`${styles.statusPill} ${styles.statusPillDisabled}`}
-                                >
-                                  Disabled
-                                </span>
-                              )}
-                            </label>
-                          )
-                        })
-                      )}
-                    </div>
-                  </section>
+                  <div className={styles.groupActionCards}>
+                    <button type="button" className={styles.secondaryButton} onClick={openPermissionsDialog}>
+                      View/Edit Permissions
+                    </button>
+                    <button type="button" className={styles.secondaryButton} onClick={openMembersDialog}>
+                      View/Edit Members
+                    </button>
+                  </div>
                 </>
               ) : (
                 <p className={styles.emptyState}>No group selected.</p>
@@ -625,6 +796,166 @@ export default function GroupsScreen() {
             </div>
           </div>
         </>
+      )}
+      {activeDialog === 'members' && selectedGroup && (
+        <div className={styles.modalBackdrop}>
+          <div
+            ref={membersDialogRef}
+            className={styles.adminModal}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="group-members-dialog-title"
+            tabIndex={-1}
+          >
+            <div className={styles.modalHeader}>
+              <div>
+                <p className={styles.detailLabel}>Members</p>
+                <h2 id="group-members-dialog-title">{selectedGroup.name}</h2>
+              </div>
+              <button type="button" className={styles.secondaryButton} onClick={() => setActiveDialog(null)}>
+                Close
+              </button>
+            </div>
+            <div className={styles.modalBody}>
+              {error && <p className={styles.errorBanner} role="alert">{error}</p>}
+              <label className={styles.field}>
+                <span>Search users</span>
+                <input
+                  className={styles.input}
+                  value={memberSearch}
+                  onChange={(event) => setMemberSearch(event.target.value)}
+                  autoFocus
+                />
+              </label>
+              <p className={styles.panelMeta}>{selectedGroupMemberCount} current members</p>
+              <div className={styles.groupMembershipList}>
+                {filteredMembershipUsers.length === 0 ? (
+                  <p className={styles.emptyState}>No users found.</p>
+                ) : (
+                  filteredMembershipUsers.map((user) => {
+                    const checked = selectedGroupMemberUserIds.has(user.appUserId)
+                    const isLockedSelfAdmin =
+                      checked &&
+                      user.appUserId === currentUser?.appUserId &&
+                      selectedGroup.groupKey === APP_ADMIN_GROUP_KEY
+                    return (
+                      <label key={user.appUserId} className={styles.groupMemberCheckItem}>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          disabled={savingMembershipUserId === user.appUserId || isLockedSelfAdmin}
+                          onChange={(event) => void handleToggleMembership(user, event.target.checked)}
+                        />
+                        <span className={styles.groupMemberText}>
+                          <strong>{userDisplayName(user)}</strong>
+                          <small>{user.email || user.sfStateId}</small>
+                        </span>
+                        {user.recordStatus === RECORD_STATUS_DISABLED && (
+                          <span className={`${styles.statusPill} ${styles.statusPillDisabled}`}>
+                            Disabled
+                          </span>
+                        )}
+                      </label>
+                    )
+                  })
+                )}
+              </div>
+            </div>
+            <div className={styles.modalFooter}>
+              <span className={styles.modalFooterStatus} role="status">{status}</span>
+              <div className={styles.modalFooterActions}>
+                <button type="button" className={styles.primaryButton} onClick={() => setActiveDialog(null)}>
+                  Done
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeDialog === 'permissions' && selectedGroup && (
+        <div className={styles.modalBackdrop}>
+          <div
+            ref={permissionsDialogRef}
+            className={`${styles.adminModal} ${styles.resourceListModal}`}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="group-permissions-dialog-title"
+            tabIndex={-1}
+          >
+            <div className={styles.modalHeader}>
+              <div>
+                <p className={styles.detailLabel}>Resource Type permissions</p>
+                <h2 id="group-permissions-dialog-title">{selectedGroup.name}</h2>
+              </div>
+              <button type="button" className={styles.secondaryButton} onClick={() => setActiveDialog(null)} disabled={savingPermissions}>
+                Cancel
+              </button>
+            </div>
+            <div className={styles.modalBody}>
+              {error && <p className={styles.errorBanner} role="alert">{error}</p>}
+              <p className={styles.permissionHelp}>
+                View allows calendar visibility. Book includes viewing and permits reservations.
+              </p>
+              <label className={styles.field}>
+                <span>Search Resource Types</span>
+                <input
+                  className={styles.input}
+                  value={permissionSearch}
+                  onChange={(event) => setPermissionSearch(event.target.value)}
+                  autoFocus
+                />
+              </label>
+              <div className={styles.permissionList}>
+                {filteredResourceTypes.length === 0 ? (
+                  <p className={styles.emptyState}>No Resource Types found.</p>
+                ) : (
+                  filteredResourceTypes.map((resourceType) => (
+                    <div key={resourceType.resourceTypeId} className={styles.permissionRow}>
+                      <div className={styles.permissionIdentity}>
+                        <strong>{resourceType.name}</strong>
+                        <span>{resourceType.description || 'No description'}</span>
+                        {!resourceType.isActive && (
+                          <span className={`${styles.statusPill} ${styles.statusPillDisabled}`}>Inactive</span>
+                        )}
+                      </div>
+                      <label className={styles.permissionSelectLabel}>
+                        <span className={styles.srOnly}>Permission for {resourceType.name}</span>
+                        <select
+                          className={styles.select}
+                          value={permissionDraft[resourceType.resourceTypeId] ?? 'none'}
+                          onChange={(event) =>
+                            setPermissionDraft((current) => ({
+                              ...current,
+                              [resourceType.resourceTypeId]: event.target.value as PermissionLevel,
+                            }))
+                          }
+                        >
+                          <option value="none">No access</option>
+                          <option value="view">View</option>
+                          <option value="book">Book</option>
+                        </select>
+                      </label>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+            <div className={styles.modalFooter}>
+              <span className={styles.modalFooterStatus} role="status">
+                {savingPermissions ? 'Saving permissions…' : ''}
+              </span>
+              <div className={styles.modalFooterActions}>
+                <button type="button" className={styles.secondaryButton} onClick={() => setActiveDialog(null)} disabled={savingPermissions}>
+                  Cancel
+                </button>
+                <button type="button" className={styles.primaryButton} onClick={() => void handleSavePermissions()} disabled={savingPermissions}>
+                  {savingPermissions ? 'Saving…' : 'Save Changes'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </section>
   )

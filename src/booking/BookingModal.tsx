@@ -42,6 +42,13 @@ import { Sfsures_blackoutwindowsService } from '../generated/services/Sfsures_bl
 import { useTheme } from '../theme/ThemeContext'
 import { useCurrentUser } from '../auth/UserContext'
 import { useFocusTrap } from '../a11y/useFocusTrap'
+import { AUDIT_ACTION_TYPES, AUDIT_TARGET_TYPES, writeAuditLog } from '../audit/auditLog'
+import {
+  loadEligibleReservationOwners,
+  loadMappedOwner,
+  reservationOwnerSnapshot,
+  type ReservationOwnerOption,
+} from './reservationOwners'
 import greenCheckUrl from '../assets/greencheck.png?inline'
 import styles from './BookingModal.module.css'
 
@@ -67,6 +74,7 @@ interface BookingModalProps {
 export interface EditableReservation {
   id: string
   resourceId: string
+  bookingOwnerId: string
   comments: string
 }
 
@@ -91,6 +99,7 @@ export interface EditableReservationSeries {
 interface ResourceOption {
   id: string
   name: string
+  resourceTypeId: string
 }
 
 interface ConflictInfo {
@@ -506,10 +515,15 @@ export function BookingModal({ start, end, initialReservation, initialSeries, on
   // ---- Resource list ----
   const [resources, setResources] = useState<ResourceOption[]>([])
   const [resourcesLoading, setResourcesLoading] = useState(true)
+  const [owners, setOwners] = useState<ReservationOwnerOption[]>([])
+  const [ownersLoading, setOwnersLoading] = useState(false)
 
   // ---- Form state ----
   const [selectedResourceId, setSelectedResourceId] = useState(
     initialSeries?.resourceId ?? initialReservation?.resourceId ?? ''
+  )
+  const [selectedOwnerId, setSelectedOwnerId] = useState(
+    initialSeries?.bookingOwnerId ?? initialReservation?.bookingOwnerId ?? currentUser?.appUserId ?? ''
   )
   const [startStr, setStartStr] = useState(toDatetimeLocal(start))
   const [endStr, setEndStr] = useState(toDatetimeLocal(end))
@@ -550,6 +564,9 @@ export function BookingModal({ start, end, initialReservation, initialSeries, on
   )
   const selectedResourceName =
     resources.find((resource) => resource.id === selectedResourceId)?.name ?? 'Selected resource'
+  const selectedResourceTypeId =
+    resources.find((resource) => resource.id === selectedResourceId)?.resourceTypeId ?? ''
+  const selectedOwner = owners.find((owner) => owner.appUserId === selectedOwnerId) ?? null
   const successTitle =
     successKind === 'updated'
       ? successScope === 'series'
@@ -612,6 +629,7 @@ export function BookingModal({ start, end, initialReservation, initialSeries, on
           .map((resource) => ({
             id: resource.sfsures_resourceid,
             name: resource.sfsures_name ?? 'Unnamed',
+            resourceTypeId: resource._sfsures_resourcetype_value ?? '',
           }))
 
         setResources(opts)
@@ -630,6 +648,56 @@ export function BookingModal({ start, end, initialReservation, initialSeries, on
 
     load()
   }, [initialReservation?.resourceId, initialSeries?.resourceId])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const loadOwners = async () => {
+      if (!currentUser || !selectedResourceId || !selectedResourceTypeId) {
+        setOwners([])
+        return
+      }
+
+      setOwnersLoading(true)
+      try {
+        const loadedOwners = currentUser.isAppAdmin
+          ? await loadEligibleReservationOwners(selectedResourceId, selectedResourceTypeId)
+          : [await loadMappedOwner(currentUser.appUserId)].filter(
+              (owner): owner is ReservationOwnerOption => owner !== null
+            )
+
+        if (cancelled) return
+        setOwners(loadedOwners)
+        setSelectedOwnerId((current) => {
+          if (loadedOwners.some((owner) => owner.appUserId === current)) return current
+          if (!initialReservation && !initialSeries) {
+            const actor = loadedOwners.find((owner) => owner.appUserId === currentUser.appUserId)
+            return actor?.appUserId ?? loadedOwners[0]?.appUserId ?? ''
+          }
+          return current
+        })
+      } catch (err) {
+        console.error('Failed to load eligible reservation owners:', err)
+        if (!cancelled) {
+          setOwners([])
+          setError('Could not load eligible reservation owners for this resource.')
+        }
+      } finally {
+        if (!cancelled) setOwnersLoading(false)
+      }
+    }
+
+    void loadOwners()
+    return () => {
+      cancelled = true
+    }
+  }, [
+    currentUser,
+    initialReservation,
+    initialSeries,
+    selectedResourceId,
+    selectedResourceTypeId,
+  ])
 
   const handleRecurrenceFrequencyChange = useCallback((frequency: RecurrenceFrequency) => {
     setRecurrenceFrequency(frequency)
@@ -706,6 +774,15 @@ export function BookingModal({ start, end, initialReservation, initialSeries, on
 
     if (!currentUser) {
       setError('User identity not available. Try reloading the app.')
+      return
+    }
+
+    if (!selectedOwner) {
+      setError(
+        currentUser.isAppAdmin
+          ? 'Select an active, mapped App User with Book access to this resource.'
+          : 'Your App User is not mapped to an active Dataverse User. Contact an administrator.'
+      )
       return
     }
 
@@ -861,7 +938,8 @@ export function BookingModal({ start, end, initialReservation, initialSeries, on
         occurrence: RequestedOccurrence,
         seriesId?: string,
         includeBookingOwner = true,
-        bookingOwnerId = currentUser.appUserId
+        bookingOwnerId = selectedOwner.appUserId,
+        systemUserId = selectedOwner.systemUserId
       ) => ({
         sfsures_name: `${selectedResourceName} ${formatShortDate(occurrence.start)}`,
         sfsures_start: toDataverseIso(occurrence.start),
@@ -871,6 +949,9 @@ export function BookingModal({ start, end, initialReservation, initialSeries, on
         'sfsures_Resource@odata.bind': `/sfsures_resources(${selectedResourceId})`,
         ...(includeBookingOwner
           ? { 'sfsures_BookingOwner@odata.bind': `/sfsures_appusers(${bookingOwnerId})` }
+          : {}),
+        ...(includeBookingOwner
+          ? { 'ownerid@odata.bind': `/systemusers(${systemUserId})` }
           : {}),
         ...(seriesId
           ? { 'sfsures_Series@odata.bind': `/sfsures_reservationserieses(${seriesId})` }
@@ -895,15 +976,29 @@ export function BookingModal({ start, end, initialReservation, initialSeries, on
         sfsures_recordstatus: RECORD_STATUS_ACTIVE,
         'sfsures_Resource@odata.bind': `/sfsures_resources(${selectedResourceId})`,
         ...(includeBookingOwner
-          ? { 'sfsures_BookingOwner@odata.bind': `/sfsures_appusers(${currentUser.appUserId})` }
+          ? { 'sfsures_BookingOwner@odata.bind': `/sfsures_appusers(${selectedOwner.appUserId})` }
+          : {}),
+        ...(includeBookingOwner
+          ? { 'ownerid@odata.bind': `/systemusers(${selectedOwner.systemUserId})` }
           : {}),
       })
+
+      let auditTargetId: string | undefined
+      let affectedRowIds: string[] = []
 
       if (isOccurrenceEdit && bookingId) {
         await Sfsures_reservationoccurrencesService.update(
           bookingId,
-          makeOccurrenceFields(firstOccurrence, undefined, false) as unknown as Parameters<typeof Sfsures_reservationoccurrencesService.update>[1]
+          makeOccurrenceFields(
+            firstOccurrence,
+            undefined,
+            currentUser.isAppAdmin,
+            selectedOwner.appUserId,
+            selectedOwner.systemUserId
+          ) as unknown as Parameters<typeof Sfsures_reservationoccurrencesService.update>[1]
         )
+        auditTargetId = bookingId
+        affectedRowIds = [bookingId]
         setSuccessScope('single')
         setSuccessOccurrenceCount(1)
         setSuccessRecurrenceSummary('')
@@ -918,7 +1013,8 @@ export function BookingModal({ start, end, initialReservation, initialSeries, on
                 occurrence,
                 initialSeries.id,
                 true,
-                initialSeries.bookingOwnerId
+                selectedOwner.appUserId,
+                selectedOwner.systemUserId
               ) as unknown as Parameters<typeof Sfsures_reservationoccurrencesService.create>[0]
             )
             const occurrenceId = occurrenceResult.data?.sfsures_reservationoccurrenceid
@@ -929,7 +1025,7 @@ export function BookingModal({ start, end, initialReservation, initialSeries, on
 
           await Sfsures_reservationseriesesService.update(
             initialSeries.id,
-            makeSeriesFields(false) as unknown as Parameters<typeof Sfsures_reservationseriesesService.update>[1]
+            makeSeriesFields(true) as unknown as Parameters<typeof Sfsures_reservationseriesesService.update>[1]
           )
 
           await Promise.all(
@@ -957,6 +1053,12 @@ export function BookingModal({ start, end, initialReservation, initialSeries, on
         }
 
         setBookingId(null)
+        auditTargetId = initialSeries.id
+        affectedRowIds = [
+          initialSeries.id,
+          ...createdOccurrenceIds,
+          ...initialSeries.activeOccurrenceIds,
+        ]
         setSuccessScope('series')
         setSuccessOccurrenceCount(requestedOccurrences.length)
         setSuccessRecurrenceSummary(recurrenceBuild.summary)
@@ -1004,6 +1106,10 @@ export function BookingModal({ start, end, initialReservation, initialSeries, on
         }
 
         setBookingId(null)
+        auditTargetId = seriesId ?? undefined
+        affectedRowIds = [seriesId, ...createdOccurrenceIds].filter(
+          (id): id is string => typeof id === 'string'
+        )
         setSuccessScope('series')
         setSuccessOccurrenceCount(requestedOccurrences.length)
         setSuccessRecurrenceSummary(recurrenceBuild.summary)
@@ -1013,13 +1119,54 @@ export function BookingModal({ start, end, initialReservation, initialSeries, on
         const result = await Sfsures_reservationoccurrencesService.create(
           makeOccurrenceFields(firstOccurrence) as unknown as Parameters<typeof Sfsures_reservationoccurrencesService.create>[0]
         )
-        setBookingId(result.data?.sfsures_reservationoccurrenceid ?? null)
+        const createdBookingId = result.data?.sfsures_reservationoccurrenceid ?? null
+        setBookingId(createdBookingId)
+        auditTargetId = createdBookingId ?? undefined
+        affectedRowIds = createdBookingId ? [createdBookingId] : []
         setSaveMode('edit')
         setSuccessScope('single')
         setSuccessOccurrenceCount(1)
         setSuccessRecurrenceSummary('')
         setSuccessKind('created')
         resetRecurrenceFields()
+      }
+
+      const affectedScope = isSeriesRequest || isSeriesEditMode ? 'series' : 'occurrence'
+      const previousOwnerId = initialSeries?.bookingOwnerId ?? initialReservation?.bookingOwnerId
+      const ownershipChanged = !!previousOwnerId && previousOwnerId !== selectedOwner.appUserId
+      const shouldAudit = saveMode === 'create' || ownershipChanged
+      if (shouldAudit) {
+        try {
+          const previousOwner = previousOwnerId
+            ? await loadMappedOwner(previousOwnerId, false)
+            : null
+          const auditWritten = await writeAuditLog({
+            actor: currentUser,
+            actionType:
+              saveMode === 'create'
+                ? AUDIT_ACTION_TYPES.reservationCreated
+                : AUDIT_ACTION_TYPES.reservationModified,
+            targetType: AUDIT_TARGET_TYPES.reservation,
+            targetId: auditTargetId,
+            targetLabel: selectedResourceName,
+            beforeState: previousOwner
+              ? reservationOwnerSnapshot(previousOwner)
+              : previousOwnerId
+                ? { appUserId: previousOwnerId }
+                : undefined,
+            afterState: reservationOwnerSnapshot(selectedOwner),
+            details: {
+              affectedScope,
+              affectedRowIds,
+              ownershipChanged,
+            },
+          })
+          if (!auditWritten) {
+            console.warn('Reservation saved, but its audit log row could not be written.')
+          }
+        } catch (auditErr) {
+          console.error('Reservation saved, but ownership auditing failed:', auditErr)
+        }
       }
 
       setMode('success')
@@ -1052,8 +1199,10 @@ export function BookingModal({ start, end, initialReservation, initialSeries, on
     reservationLimits.maxOccurrences,
     reservationLimits.maxSpanWeeks,
     currentUser,
+    selectedOwner,
     saveMode,
     bookingId,
+    initialReservation,
     initialSeries,
     selectedResourceName,
     resetRecurrenceFields,
@@ -1070,7 +1219,14 @@ export function BookingModal({ start, end, initialReservation, initialSeries, on
   }, [onClose])
 
   // ---- Render ----
-  const canSubmit = selectedResourceIsReservable && !!startStr && !!endStr && !saving && !resourcesLoading
+  const canSubmit =
+    selectedResourceIsReservable &&
+    !!selectedOwner &&
+    !!startStr &&
+    !!endStr &&
+    !saving &&
+    !resourcesLoading &&
+    !ownersLoading
   const submitLabel = isSeriesEdit
     ? 'Save Series'
     : saveMode === 'edit'
@@ -1237,6 +1393,52 @@ export function BookingModal({ start, end, initialReservation, initialSeries, on
                 </p>
               )}
             </div>
+
+            {currentUser?.isAppAdmin && (
+              <div className={styles.field}>
+                <label className={styles.label} htmlFor="booking-owner">
+                  Reservation owner
+                </label>
+                {ownersLoading ? (
+                  <p className={styles.resourcesLoading}>
+                    <span className={styles.spinner} style={{ borderTopColor: theme.primaryColor }} />
+                    Loading eligible owners…
+                  </p>
+                ) : (
+                  <select
+                    id="booking-owner"
+                    className={styles.select}
+                    value={selectedOwnerId}
+                    onChange={(event) => {
+                      setSelectedOwnerId(event.target.value)
+                      setError('')
+                    }}
+                    disabled={!selectedResourceId}
+                  >
+                    <option value="">Select an eligible owner…</option>
+                    {owners.map((owner) => (
+                      <option key={owner.appUserId} value={owner.appUserId}>
+                        {owner.displayName} ({owner.sfStateId})
+                      </option>
+                    ))}
+                  </select>
+                )}
+                {!ownersLoading && selectedResourceId && owners.length === 0 && (
+                  <p className={styles.limitHint}>
+                    No active mapped App Users have Book access to this resource.
+                  </p>
+                )}
+                {selectedOwner && (
+                  <p className={styles.limitHint}>
+                    {isSeriesEdit
+                      ? 'Saving transfers the entire recurring series and all replacement occurrences.'
+                      : saveMode === 'edit'
+                        ? 'Saving transfers this occurrence only.'
+                        : 'The reservation will be created for this person.'}
+                  </p>
+                )}
+              </div>
+            )}
 
             {/* Start / End */}
             <div className={styles.timeRow}>

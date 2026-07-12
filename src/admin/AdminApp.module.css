@@ -1344,6 +1344,77 @@
   gap: 0.75rem;
 }
 
+.groupActionCards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  border-top: 1px solid #ececec;
+  padding-top: 1rem;
+}
+
+.groupActionCards .secondaryButton {
+  min-height: 44px;
+}
+
+.permissionHelp {
+  margin: 0;
+  color: #555555;
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+
+.permissionList {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.permissionRow {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 9rem;
+  gap: 1rem;
+  align-items: center;
+  border: 1px solid #dddddd;
+  border-radius: 6px;
+  padding: 0.75rem;
+}
+
+.permissionIdentity {
+  min-width: 0;
+  display: grid;
+  gap: 0.2rem;
+}
+
+.permissionIdentity strong {
+  color: #1a1a1a;
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+
+.permissionIdentity > span:not(.statusPill) {
+  color: #666666;
+  font-size: 0.75rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.permissionSelectLabel,
+.permissionSelectLabel .select {
+  width: 100%;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .groupDescription {
   margin: -0.25rem 0 1rem;
   color: #444444;
@@ -1569,6 +1640,11 @@
 
   .groupMemberCheckItem {
     grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .groupActionCards,
+  .permissionRow {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .groupMemberCheckItem .statusPill {

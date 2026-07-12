@@ -7,7 +7,10 @@ import type {
 } from '../generated/models/Sfsures_auditlogsModel'
 
 export const AUDIT_ACTION_TYPES = {
+  reservationCreated: 997330000,
+  reservationModified: 997330001,
   groupCreated: 997330006,
+  groupEdited: 997330010,
   resourceCatalogEdited: 997330007,
   groupMemberAdded: 997330011,
   groupMemberRemoved: 997330012,
@@ -19,6 +22,7 @@ export const AUDIT_OUTCOMES = {
 } as const satisfies Record<string, Sfsures_auditlogssfsures_outcome>
 
 export const AUDIT_TARGET_TYPES = {
+  reservation: 997330000,
   resource: 997330001,
   group: 997330003,
 } as const satisfies Record<string, Sfsures_auditlogssfsures_targettype>

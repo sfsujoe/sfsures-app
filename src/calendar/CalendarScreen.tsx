@@ -667,6 +667,7 @@ export function CalendarScreen({ onOpenAdmin }: CalendarScreenProps) {
       reservation: {
         id: selectedEvent.id,
         resourceId,
+        bookingOwnerId: ownerId,
         comments: reservationCommentsFor(selectedEvent),
       },
     })
