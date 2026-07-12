@@ -18,8 +18,12 @@ import type {
   Sfsures_resourcessfsures_calendarcolor,
 } from '../generated/models/Sfsures_resourcesModel'
 import type { Sfsures_resourcetypes } from '../generated/models/Sfsures_resourcetypesModel'
+import type { Sfsures_attributedefinitions } from '../generated/models/Sfsures_attributedefinitionsModel'
+import type { Sfsures_resourceattributevalues } from '../generated/models/Sfsures_resourceattributevaluesModel'
 import { Sfsures_resourcesService } from '../generated/services/Sfsures_resourcesService'
 import { Sfsures_resourcetypesService } from '../generated/services/Sfsures_resourcetypesService'
+import { Sfsures_attributedefinitionsService } from '../generated/services/Sfsures_attributedefinitionsService'
+import { Sfsures_resourceattributevaluesService } from '../generated/services/Sfsures_resourceattributevaluesService'
 import {
   RESOURCE_COLOR_OPTIONS,
   resourceColorByValue,
@@ -47,6 +51,32 @@ interface AdminResource {
   calendarColor: Sfsures_resourcessfsures_calendarcolor
   recordStatus: number
   photoThumbnailUrl: string | null
+}
+
+interface AttributeDefinition {
+  id: string
+  resourceTypeId: string
+  name: string
+  dataType: number
+  required: boolean
+  choiceOptions: string[]
+  displayOrder: number
+}
+
+interface AttributeValue {
+  id: string
+  resourceId: string
+  definitionId: string
+  value: string
+}
+
+interface AttributeDefinitionForm {
+  id: string | null
+  name: string
+  dataType: number
+  required: boolean
+  choiceOptions: string
+  displayOrder: string
 }
 
 interface ResourceTypeForm {
@@ -86,6 +116,8 @@ const RESOURCE_TYPE_STATUS_ACTIVE = 997330000
 const RESOURCE_TYPE_STATUS_INACTIVE = 997330001
 const RESOURCE_STATUS_ACTIVE = 997330000
 const RESOURCE_STATUS_DISABLED = 997330001
+const ATTRIBUTE_TYPE_TEXT = 997330000
+const ATTRIBUTE_TYPE_CHOICE = 997330004
 const DEFAULT_RESOURCE_COLOR = RESOURCE_COLOR_OPTIONS[0].value
 const RESOURCE_PHOTO_COLUMN = 'sfsures_resourcephoto'
 const RESOURCE_PHOTO_ACCEPT = '.jpg,.jpeg,.png,.gif,.bmp,image/jpeg,image/png,image/gif,image/bmp'
@@ -101,6 +133,24 @@ const EMPTY_RESOURCE_TYPE_FORM: ResourceTypeForm = {
   id: null,
   name: '',
   description: '',
+}
+
+const EMPTY_ATTRIBUTE_FORM: AttributeDefinitionForm = {
+  id: null,
+  name: '',
+  dataType: ATTRIBUTE_TYPE_TEXT,
+  required: false,
+  choiceOptions: '',
+  displayOrder: '10',
+}
+
+function attributeValueText(row: Sfsures_resourceattributevalues): string {
+  if (row.sfsures_valuetext != null) return row.sfsures_valuetext
+  if (row.sfsures_valuechoice != null) return row.sfsures_valuechoice
+  if (row.sfsures_valuenumber != null) return String(row.sfsures_valuenumber)
+  if (row.sfsures_valuedatetime != null) return row.sfsures_valuedatetime
+  if (row.sfsures_valueboolean != null) return row.sfsures_valueboolean ? 'Yes' : 'No'
+  return ''
 }
 
 function emptyResourceForm(resourceTypeId = ''): ResourceForm {
@@ -343,6 +393,12 @@ export default function ResourcesScreen() {
   const resourcePhotoPreviewTitleId = `${colorPickerId}-photo-preview-title`
   const [resourceTypes, setResourceTypes] = useState<AdminResourceType[]>([])
   const [resources, setResources] = useState<AdminResource[]>([])
+  const [attributeDefinitions, setAttributeDefinitions] = useState<AttributeDefinition[]>([])
+  const [attributeValues, setAttributeValues] = useState<AttributeValue[]>([])
+  const [attributeForm, setAttributeForm] = useState<AttributeDefinitionForm>(EMPTY_ATTRIBUTE_FORM)
+  const [resourceAttributeDraft, setResourceAttributeDraft] = useState<Record<string, string>>({})
+  const [attributesDialogOpen, setAttributesDialogOpen] = useState(false)
+  const [savingAttribute, setSavingAttribute] = useState(false)
   const [selectedResourceTypeId, setSelectedResourceTypeId] = useState<string | null>(null)
   const [selectedResourceId, setSelectedResourceId] = useState<string | null>(null)
   const [resourceListResourceTypeId, setResourceListResourceTypeId] = useState<string | null>(null)
@@ -372,10 +428,12 @@ export default function ResourcesScreen() {
   const resourceListDialogRef = useRef<HTMLDivElement | null>(null)
   const resourcePhotoInputRef = useRef<HTMLInputElement | null>(null)
   const resourcePhotoPreviewDialogRef = useRef<HTMLDivElement | null>(null)
+  const attributesDialogRef = useRef<HTMLDivElement | null>(null)
   const [colorPickerOpen, setColorPickerOpen] = useState(false)
   useFocusTrap(dialogRef, activeDialog !== null)
   useFocusTrap(resourceListDialogRef, resourceListResourceTypeId !== null)
   useFocusTrap(resourcePhotoPreviewDialogRef, photoPreviewResourceId !== null)
+  useFocusTrap(attributesDialogRef, attributesDialogOpen)
 
   const loadCatalog = useCallback(async (preferred?: {
     resourceTypeId?: string | null
@@ -385,7 +443,7 @@ export default function ResourcesScreen() {
     setError('')
 
     try {
-      const [resourceTypeResult, resourceResult, resourcePhotosById] = await Promise.all([
+      const [resourceTypeResult, resourceResult, resourcePhotosById, definitionResult, valueResult] = await Promise.all([
         Sfsures_resourcetypesService.getAll({
           select: [
             'sfsures_resourcetypeid',
@@ -410,6 +468,17 @@ export default function ResourcesScreen() {
           top: 500,
         }),
         loadResourcePhotoMap(),
+        Sfsures_attributedefinitionsService.getAll({
+          select: ['sfsures_attributedefinitionid', '_sfsures_resourcetype_value', 'sfsures_name', 'sfsures_datatype', 'sfsures_required', 'sfsures_choiceoptions', 'sfsures_displayorder'],
+          filter: 'statecode eq 0',
+          orderBy: ['sfsures_displayorder asc', 'sfsures_name asc'],
+          top: 1000,
+        }),
+        Sfsures_resourceattributevaluesService.getAll({
+          select: ['sfsures_resourceattributevalueid', '_sfsures_resource_value', '_sfsures_attributedefinition_value', 'sfsures_valuetext', 'sfsures_valuechoice', 'sfsures_valuenumber', 'sfsures_valuedatetime', 'sfsures_valueboolean'],
+          filter: 'statecode eq 0',
+          top: 5000,
+        }),
       ])
 
       const loadedResourceTypes = ((resourceTypeResult.data ?? []) as Sfsures_resourcetypes[])
@@ -474,6 +543,21 @@ export default function ResourcesScreen() {
       selectedResourceIdRef.current = nextResourceId
       setResourceTypes(loadedResourceTypes)
       setResources(loadedResources)
+      setAttributeDefinitions(((definitionResult.data ?? []) as Sfsures_attributedefinitions[]).map((definition) => ({
+        id: definition.sfsures_attributedefinitionid,
+        resourceTypeId: definition._sfsures_resourcetype_value ?? '',
+        name: definition.sfsures_name,
+        dataType: definition.sfsures_datatype,
+        required: definition.sfsures_required === true,
+        choiceOptions: (definition.sfsures_choiceoptions ?? '').split(/\r?\n/).map((option) => option.trim()).filter(Boolean),
+        displayOrder: definition.sfsures_displayorder ?? 0,
+      })))
+      setAttributeValues(((valueResult.data ?? []) as Sfsures_resourceattributevalues[]).map((value) => ({
+        id: value.sfsures_resourceattributevalueid,
+        resourceId: value._sfsures_resource_value ?? '',
+        definitionId: value._sfsures_attributedefinition_value ?? '',
+        value: attributeValueText(value),
+      })))
       setSelectedResourceTypeId(nextResourceTypeId)
       setSelectedResourceId(nextResourceId)
       setResourceTypeForm(resourceTypeFormFrom(nextResourceType))
@@ -591,6 +675,129 @@ export default function ResourcesScreen() {
     (activeDialog?.kind === 'resource' && activeDialog.mode === 'edit'
       ? selectedResource?.photoThumbnailUrl ?? null
       : null)
+  const selectedTypeDefinitions = attributeDefinitions
+    .filter((definition) => definition.resourceTypeId === selectedResourceTypeId)
+    .sort((a, b) => a.displayOrder - b.displayOrder || a.name.localeCompare(b.name))
+  const formDefinitions = attributeDefinitions
+    .filter(
+      (definition) =>
+        definition.resourceTypeId === resourceForm.resourceTypeId &&
+        (definition.dataType === ATTRIBUTE_TYPE_TEXT || definition.dataType === ATTRIBUTE_TYPE_CHOICE)
+    )
+    .sort((a, b) => a.displayOrder - b.displayOrder || a.name.localeCompare(b.name))
+  const selectedResourceAttributes = selectedResource
+    ? attributeDefinitions
+        .filter((definition) => definition.resourceTypeId === selectedResource.resourceTypeId)
+        .map((definition) => ({
+          definition,
+          value: attributeValues.find(
+            (value) => value.resourceId === selectedResource.resourceId && value.definitionId === definition.id
+          )?.value ?? '',
+        }))
+        .filter((item) => item.value)
+    : []
+
+  function attributeDraftFor(resource: AdminResource | null): Record<string, string> {
+    if (!resource) return {}
+    return Object.fromEntries(
+      attributeValues
+        .filter((value) => value.resourceId === resource.resourceId)
+        .map((value) => [value.definitionId, value.value])
+    )
+  }
+
+  function openAttributesDialog() {
+    setAttributeForm(EMPTY_ATTRIBUTE_FORM)
+    setModalError('')
+    setAttributesDialogOpen(true)
+  }
+
+  async function handleSaveAttributeDefinition(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!selectedResourceType) return
+    const name = attributeForm.name.trim()
+    const options = attributeForm.choiceOptions.split(/\r?\n/).map((option) => option.trim()).filter(Boolean)
+    const displayOrder = Number(attributeForm.displayOrder)
+    if (!name) return setModalError('Enter a custom field name.')
+    if (!Number.isInteger(displayOrder)) return setModalError('Display order must be a whole number.')
+    if (selectedTypeDefinitions.some((definition) => definition.id !== attributeForm.id && definition.name.toLowerCase() === name.toLowerCase())) {
+      return setModalError('A custom field with this name already exists for the Resource Type.')
+    }
+    if (attributeForm.dataType === ATTRIBUTE_TYPE_CHOICE && options.length < 2) {
+      return setModalError('Enter at least two Choice options, one per line.')
+    }
+    if (attributeForm.id && attributeForm.dataType === ATTRIBUTE_TYPE_CHOICE) {
+      const invalidExistingValue = attributeValues.find(
+        (value) => value.definitionId === attributeForm.id && value.value && !options.includes(value.value)
+      )
+      if (invalidExistingValue) {
+        return setModalError('An existing Resource uses a Choice option that would be removed.')
+      }
+    }
+    if (attributeForm.required) {
+      const resourcesOfType = resources.filter((resource) => resource.resourceTypeId === selectedResourceType.resourceTypeId)
+      const missingExistingValue = resourcesOfType.some(
+        (resource) =>
+          !attributeValues.some(
+            (value) => value.resourceId === resource.resourceId && value.definitionId === attributeForm.id && value.value.trim()
+          )
+      )
+      if (attributeForm.id && missingExistingValue) {
+        return setModalError('Add values to every existing Resource before making this field required.')
+      }
+    }
+    setSavingAttribute(true)
+    setModalError('')
+    try {
+      const fields = {
+        sfsures_name: name,
+        sfsures_datatype: attributeForm.dataType,
+        sfsures_required: attributeForm.required,
+        sfsures_choiceoptions: attributeForm.dataType === ATTRIBUTE_TYPE_CHOICE ? options.join('\n') : null,
+        sfsures_displayorder: displayOrder,
+        'sfsures_ResourceType@odata.bind': `/sfsures_resourcetypes(${selectedResourceType.resourceTypeId})`,
+      }
+      if (attributeForm.id) {
+        await Sfsures_attributedefinitionsService.update(attributeForm.id, fields as unknown as Parameters<typeof Sfsures_attributedefinitionsService.update>[1])
+      } else {
+        await Sfsures_attributedefinitionsService.create({ ...fields, statecode: 0, statuscode: 1 } as unknown as Parameters<typeof Sfsures_attributedefinitionsService.create>[0])
+      }
+      await loadCatalog({ resourceTypeId: selectedResourceType.resourceTypeId })
+      setAttributeForm(EMPTY_ATTRIBUTE_FORM)
+      setStatus('Custom field saved.')
+    } catch (err) {
+      setModalError(err instanceof Error ? err.message : 'Custom field could not be saved.')
+    } finally {
+      setSavingAttribute(false)
+    }
+  }
+
+  async function saveResourceAttributeValues(resourceId: string) {
+    for (const definition of formDefinitions) {
+      const desired = (resourceAttributeDraft[definition.id] ?? '').trim()
+      const existing = attributeValues.find(
+        (value) => value.resourceId === resourceId && value.definitionId === definition.id
+      )
+      if (!desired && existing) {
+        await Sfsures_resourceattributevaluesService.delete(existing.id)
+      } else if (desired && existing) {
+        await Sfsures_resourceattributevaluesService.update(existing.id, {
+          sfsures_valuetext: definition.dataType === ATTRIBUTE_TYPE_TEXT ? desired : null,
+          sfsures_valuechoice: definition.dataType === ATTRIBUTE_TYPE_CHOICE ? desired : null,
+        } as unknown as Parameters<typeof Sfsures_resourceattributevaluesService.update>[1])
+      } else if (desired) {
+        await Sfsures_resourceattributevaluesService.create({
+          sfsures_name: `${resourceId} - ${definition.name}`,
+          'sfsures_Resource@odata.bind': `/sfsures_resources(${resourceId})`,
+          'sfsures_AttributeDefinition@odata.bind': `/sfsures_attributedefinitions(${definition.id})`,
+          sfsures_valuetext: definition.dataType === ATTRIBUTE_TYPE_TEXT ? desired : undefined,
+          sfsures_valuechoice: definition.dataType === ATTRIBUTE_TYPE_CHOICE ? desired : undefined,
+          statecode: 0,
+          statuscode: 1,
+        } as unknown as Parameters<typeof Sfsures_resourceattributevaluesService.create>[0])
+      }
+    }
+  }
 
   function clearResourcePhotoDraft() {
     setPhotoCropSource(null)
@@ -723,6 +930,7 @@ export default function ResourcesScreen() {
 
   function openCreateResourceDialog() {
     setResourceForm(emptyResourceForm(fallbackResourceTypeId))
+    setResourceAttributeDraft({})
     setActiveDialog({ kind: 'resource', mode: 'create' })
     setModalError('')
     clearResourcePhotoDraft()
@@ -732,6 +940,7 @@ export default function ResourcesScreen() {
   function openEditResourceDialog() {
     if (!selectedResource) return
     setResourceForm(resourceFormFrom(selectedResource, fallbackResourceTypeId))
+    setResourceAttributeDraft(attributeDraftFor(selectedResource))
     setActiveDialog({ kind: 'resource', mode: 'edit' })
     setModalError('')
     setColorPickerOpen(false)
@@ -956,6 +1165,24 @@ export default function ResourcesScreen() {
       return
     }
 
+    const missingRequired = formDefinitions.find(
+      (definition) => definition.required && !(resourceAttributeDraft[definition.id] ?? '').trim()
+    )
+    if (missingRequired) {
+      setModalError(`${missingRequired.name} is required.`)
+      return
+    }
+    const invalidChoice = formDefinitions.find(
+      (definition) =>
+        definition.dataType === ATTRIBUTE_TYPE_CHOICE &&
+        (resourceAttributeDraft[definition.id] ?? '').trim() &&
+        !definition.choiceOptions.includes((resourceAttributeDraft[definition.id] ?? '').trim())
+    )
+    if (invalidChoice) {
+      setModalError(`Choose a valid option for ${invalidChoice.name}.`)
+      return
+    }
+
     setSavingResource(true)
     setModalError('')
     setStatus('')
@@ -977,6 +1204,7 @@ export default function ResourcesScreen() {
           resourceForm.id,
           changedFields as unknown as Parameters<typeof Sfsures_resourcesService.update>[1]
         )
+        await saveResourceAttributeValues(resourceForm.id)
 
         if (pendingResourcePhoto) {
           try {
@@ -1048,6 +1276,7 @@ export default function ResourcesScreen() {
             photoUploaded = false
           }
         }
+        if (createdId) await saveResourceAttributeValues(createdId)
 
         auditWritten = await writeAuditLog({
           actor: currentUser,
@@ -1297,6 +1526,13 @@ export default function ResourcesScreen() {
                       <button
                         type="button"
                         className={styles.secondaryButton}
+                        onClick={openAttributesDialog}
+                      >
+                        Custom Fields
+                      </button>
+                      <button
+                        type="button"
+                        className={styles.secondaryButton}
                         onClick={openResourceTypeResourcesDialog}
                       >
                         Show Resources
@@ -1447,6 +1683,20 @@ export default function ResourcesScreen() {
                       <p className={styles.groupDescription}>{selectedResource.description}</p>
                     )}
 
+                    {selectedResourceAttributes.length > 0 && (
+                      <section className={styles.customAttributeSection} aria-labelledby="resource-custom-fields-heading">
+                        <h4 id="resource-custom-fields-heading">Custom fields</h4>
+                        <dl className={styles.customAttributeList}>
+                          {selectedResourceAttributes.map(({ definition, value }) => (
+                            <div key={definition.id}>
+                              <dt>{definition.name}</dt>
+                              <dd>{value}</dd>
+                            </div>
+                          ))}
+                        </dl>
+                      </section>
+                    )}
+
                     <div className={styles.detailActions}>
                       <button
                         type="button"
@@ -1591,6 +1841,36 @@ export default function ResourcesScreen() {
         </div>
       )}
 
+      {attributesDialogOpen && selectedResourceType && (
+        <div className={styles.modalBackdrop}>
+          <div ref={attributesDialogRef} className={`${styles.adminModal} ${styles.resourceListModal}`} role="dialog" aria-modal="true" aria-labelledby="custom-fields-title" tabIndex={-1}>
+            <header className={styles.modalHeader}>
+              <div><p className={styles.detailLabel}>Resource Type</p><h2 id="custom-fields-title">{selectedResourceType.name} custom fields</h2></div>
+              <button type="button" className={styles.secondaryButton} onClick={() => setAttributesDialogOpen(false)}>Close</button>
+            </header>
+            {modalError && <p className={styles.errorBanner} role="alert">{modalError}</p>}
+            <div className={styles.modalBody}>
+              <form className={styles.attributeDefinitionForm} onSubmit={handleSaveAttributeDefinition}>
+                <label className={styles.field}><span>Field name</span><input className={styles.input} value={attributeForm.name} onChange={(event) => setAttributeForm((current) => ({ ...current, name: event.target.value }))} /></label>
+                <label className={styles.field}><span>Type</span><select className={styles.input} value={attributeForm.dataType} disabled={attributeForm.id !== null} onChange={(event) => setAttributeForm((current) => ({ ...current, dataType: Number(event.target.value) }))}><option value={ATTRIBUTE_TYPE_TEXT}>Text</option><option value={ATTRIBUTE_TYPE_CHOICE}>Choice</option></select></label>
+                <label className={styles.field}><span>Display order</span><input className={styles.input} type="number" step="1" value={attributeForm.displayOrder} onChange={(event) => setAttributeForm((current) => ({ ...current, displayOrder: event.target.value }))} /></label>
+                <label className={styles.checkboxField}><input type="checkbox" checked={attributeForm.required} onChange={(event) => setAttributeForm((current) => ({ ...current, required: event.target.checked }))} /><span>Required</span></label>
+                {attributeForm.dataType === ATTRIBUTE_TYPE_CHOICE && <label className={`${styles.field} ${styles.attributeOptionsField}`}><span>Choice options (one per line)</span><textarea className={styles.textarea} rows={4} value={attributeForm.choiceOptions} onChange={(event) => setAttributeForm((current) => ({ ...current, choiceOptions: event.target.value }))} /></label>}
+                <div className={styles.attributeFormActions}><button type="button" className={styles.secondaryButton} onClick={() => setAttributeForm(EMPTY_ATTRIBUTE_FORM)}>Clear</button><button type="submit" className={styles.primaryButton} disabled={savingAttribute}>{savingAttribute ? 'Saving...' : attributeForm.id ? 'Save Field' : 'Add Field'}</button></div>
+              </form>
+              <div className={styles.attributeDefinitionList}>
+                {selectedTypeDefinitions.length === 0 ? <p className={styles.emptyState}>No custom fields defined.</p> : selectedTypeDefinitions.map((definition) => (
+                  <button key={definition.id} type="button" className={styles.attributeDefinitionItem} disabled={definition.dataType !== ATTRIBUTE_TYPE_TEXT && definition.dataType !== ATTRIBUTE_TYPE_CHOICE} onClick={() => setAttributeForm({ id: definition.id, name: definition.name, dataType: definition.dataType, required: definition.required, choiceOptions: definition.choiceOptions.join('\n'), displayOrder: String(definition.displayOrder) })}>
+                    <strong>{definition.name}</strong><span>{definition.dataType === ATTRIBUTE_TYPE_CHOICE ? 'Choice' : definition.dataType === ATTRIBUTE_TYPE_TEXT ? 'Text' : 'Existing unsupported type'} · order {definition.displayOrder}{definition.required ? ' · required' : ''}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <footer className={styles.modalFooter}><span role="status">{status}</span><div className={styles.modalFooterActions}><button type="button" className={styles.primaryButton} onClick={() => setAttributesDialogOpen(false)}>Done</button></div></footer>
+          </div>
+        </div>
+      )}
+
       {activeDialog && (
         <div className={styles.modalBackdrop}>
           <div
@@ -1699,10 +1979,10 @@ export default function ResourcesScreen() {
                       value={resourceForm.resourceTypeId}
                       disabled={resourceTypes.length === 0}
                       onChange={(event) =>
-                        setResourceForm((current) => ({
-                          ...current,
-                          resourceTypeId: event.target.value,
-                        }))
+                        {
+                          setResourceForm((current) => ({ ...current, resourceTypeId: event.target.value }))
+                          setResourceAttributeDraft({})
+                        }
                       }
                     >
                       <option value="">Select type</option>
@@ -1719,6 +1999,33 @@ export default function ResourcesScreen() {
                       ))}
                     </select>
                   </label>
+
+                  {formDefinitions.length > 0 && (
+                    <section className={styles.customFieldEditor} aria-labelledby="resource-custom-fields-form-heading">
+                      <h3 id="resource-custom-fields-form-heading">Custom fields</h3>
+                      {formDefinitions.map((definition) => (
+                        <label key={definition.id} className={styles.field}>
+                          <span>{definition.name}{definition.required ? ' *' : ''}</span>
+                          {definition.dataType === ATTRIBUTE_TYPE_CHOICE ? (
+                            <select
+                              className={styles.input}
+                              value={resourceAttributeDraft[definition.id] ?? ''}
+                              onChange={(event) => setResourceAttributeDraft((current) => ({ ...current, [definition.id]: event.target.value }))}
+                            >
+                              <option value="">Select an option</option>
+                              {definition.choiceOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+                            </select>
+                          ) : (
+                            <input
+                              className={styles.input}
+                              value={resourceAttributeDraft[definition.id] ?? ''}
+                              onChange={(event) => setResourceAttributeDraft((current) => ({ ...current, [definition.id]: event.target.value }))}
+                            />
+                          )}
+                        </label>
+                      ))}
+                    </section>
+                  )}
 
                   <label className={styles.field}>
                     <span>Location</span>
