@@ -97,6 +97,11 @@
           "entitySetName": "systemusers",
           "logicalName": "systemuser",
           "isHidden": false
+        },
+        "reservationattributevalues": {
+          "entitySetName": "sfsures_reservationattributevalues",
+          "logicalName": "sfsures_reservationattributevalue",
+          "isHidden": false
         }
       },
       "environmentVariableName": ""

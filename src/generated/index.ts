@@ -14,6 +14,7 @@ export * as Sfsures_blackoutwindowsModel from './models/Sfsures_blackoutwindowsM
 export * as Sfsures_groupresourceaccessesModel from './models/Sfsures_groupresourceaccessesModel';
 export * as Sfsures_groupresourcetypeaccessesModel from './models/Sfsures_groupresourcetypeaccessesModel';
 export * as Sfsures_groupsModel from './models/Sfsures_groupsModel';
+export * as Sfsures_reservationattributevaluesModel from './models/Sfsures_reservationattributevaluesModel';
 export * as Sfsures_reservationoccurrencesModel from './models/Sfsures_reservationoccurrencesModel';
 export * as Sfsures_reservationseriesesModel from './models/Sfsures_reservationseriesesModel';
 export * as Sfsures_resourceattributevaluesModel from './models/Sfsures_resourceattributevaluesModel';
@@ -32,6 +33,7 @@ export * from './services/Sfsures_blackoutwindowsService';
 export * from './services/Sfsures_groupresourceaccessesService';
 export * from './services/Sfsures_groupresourcetypeaccessesService';
 export * from './services/Sfsures_groupsService';
+export * from './services/Sfsures_reservationattributevaluesService';
 export * from './services/Sfsures_reservationoccurrencesService';
 export * from './services/Sfsures_reservationseriesesService';
 export * from './services/Sfsures_resourceattributevaluesService';
