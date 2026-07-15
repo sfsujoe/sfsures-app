@@ -305,6 +305,22 @@
           "x-ms-schema-name": "sfsures_requiredName",
           "x-ms-read-only": true
         },
+        "sfsures_resource": {
+          "type": "string",
+          "title": "Resource",
+          "x-ms-dataverse-attribute": "sfsures_resource",
+          "x-ms-dataverse-type": "LookupType",
+          "x-ms-schema-name": "sfsures_Resource"
+        },
+        "sfsures_resourcename": {
+          "type": "string",
+          "title": "sfsures_resourcename",
+          "x-ms-dataverse-attribute": "sfsures_resourcename",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "sfsures_ResourceName",
+          "x-ms-read-only": true,
+          "maxLength": 850
+        },
         "sfsures_resourcetype": {
           "type": "string",
           "title": "Resource Type",

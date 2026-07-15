@@ -31,11 +31,15 @@
  *   - Success stays in this same centered dialog instead of a page banner.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Sfsures_resources } from '../generated/models/Sfsures_resourcesModel'
 import type { Sfsures_resourcetypes } from '../generated/models/Sfsures_resourcetypesModel'
+import type { Sfsures_attributedefinitions } from '../generated/models/Sfsures_attributedefinitionsModel'
+import type { Sfsures_reservationattributevalues } from '../generated/models/Sfsures_reservationattributevaluesModel'
 import { Sfsures_resourcesService } from '../generated/services/Sfsures_resourcesService'
 import { Sfsures_resourcetypesService } from '../generated/services/Sfsures_resourcetypesService'
+import { Sfsures_attributedefinitionsService } from '../generated/services/Sfsures_attributedefinitionsService'
+import { Sfsures_reservationattributevaluesService } from '../generated/services/Sfsures_reservationattributevaluesService'
 import { Sfsures_reservationoccurrencesService } from '../generated/services/Sfsures_reservationoccurrencesService'
 import { Sfsures_reservationseriesesService } from '../generated/services/Sfsures_reservationseriesesService'
 import { Sfsures_blackoutwindowsService } from '../generated/services/Sfsures_blackoutwindowsService'
@@ -103,6 +107,23 @@ interface ResourceOption {
   resourceTypeId: string
 }
 
+interface ReservationCustomField {
+  id: string
+  resourceTypeId: string
+  resourceId: string
+  name: string
+  dataType: number
+  required: boolean
+  choiceOptions: string[]
+  displayOrder: number
+}
+
+interface ReservationCustomFieldAnswer {
+  id: string
+  definitionId: string
+  value: string
+}
+
 interface ConflictInfo {
   type: 'reservation' | 'blackout'
   start: string
@@ -139,6 +160,9 @@ const RESERVATION_COMMENTS_FIELD = 'sfsures_comments'
 const RECORD_STATUS_ACTIVE = 997330000
 const RECORD_STATUS_CANCELLED = 997330001
 const RESOURCE_TYPE_STATUS_ACTIVE = 997330000
+const ATTRIBUTE_APPLIES_TO_RESERVATION = 997330001
+const ATTRIBUTE_TYPE_TEXT = 997330000
+const ATTRIBUTE_TYPE_CHOICE = 997330004
 const SERIES_FREQUENCY = {
   daily: 997330000,
   weekly: 997330001,
@@ -239,6 +263,28 @@ function parseWholeNumber(value: string): number | null {
     return null
   }
   return parsed
+}
+
+function reservationAnswerValueText(row: Sfsures_reservationattributevalues): string {
+  if (row.sfsures_valuetext != null) return row.sfsures_valuetext
+  if (row.sfsures_valuechoice != null) return row.sfsures_valuechoice
+  if (row.sfsures_valuenumber != null) return String(row.sfsures_valuenumber)
+  if (row.sfsures_valuedatetime != null) return row.sfsures_valuedatetime
+  if (row.sfsures_valueboolean != null) return row.sfsures_valueboolean ? 'Yes' : 'No'
+  return ''
+}
+
+function reservationAnswerValueFields(
+  definition: ReservationCustomField,
+  value: string
+): Pick<
+  Sfsures_reservationattributevalues,
+  'sfsures_valuechoice' | 'sfsures_valuetext'
+> {
+  return {
+    sfsures_valuetext: definition.dataType === ATTRIBUTE_TYPE_TEXT ? value : undefined,
+    sfsures_valuechoice: definition.dataType === ATTRIBUTE_TYPE_CHOICE ? value : undefined,
+  }
 }
 
 function addDays(date: Date, days: number): Date {
@@ -518,6 +564,10 @@ export function BookingModal({ start, end, initialReservation, initialSeries, on
   const [resourcesLoading, setResourcesLoading] = useState(true)
   const [owners, setOwners] = useState<ReservationOwnerOption[]>([])
   const [ownersLoading, setOwnersLoading] = useState(false)
+  const [customFields, setCustomFields] = useState<ReservationCustomField[]>([])
+  const [customFieldAnswers, setCustomFieldAnswers] = useState<ReservationCustomFieldAnswer[]>([])
+  const [customFieldDraft, setCustomFieldDraft] = useState<Record<string, string>>({})
+  const [customFieldsLoading, setCustomFieldsLoading] = useState(false)
 
   // ---- Form state ----
   const [selectedResourceId, setSelectedResourceId] = useState(
@@ -567,6 +617,16 @@ export function BookingModal({ start, end, initialReservation, initialSeries, on
     resources.find((resource) => resource.id === selectedResourceId)?.name ?? 'Selected resource'
   const selectedResourceTypeId =
     resources.find((resource) => resource.id === selectedResourceId)?.resourceTypeId ?? ''
+  const customFieldSummary = useMemo(
+    () =>
+      customFields
+        .map((field) => ({
+          field,
+          value: (customFieldDraft[field.id] ?? '').trim(),
+        }))
+        .filter((item) => item.value),
+    [customFieldDraft, customFields]
+  )
   const selectedOwner = owners.find((owner) => owner.appUserId === selectedOwnerId) ?? null
   const successTitle =
     successKind === 'updated'
@@ -720,6 +780,127 @@ export function BookingModal({ start, end, initialReservation, initialSeries, on
     selectedResourceTypeId,
   ])
 
+  useEffect(() => {
+    let cancelled = false
+
+    const loadCustomFields = async () => {
+      if (!selectedResourceId || !selectedResourceTypeId) {
+        setCustomFields([])
+        setCustomFieldAnswers([])
+        setCustomFieldDraft({})
+        return
+      }
+
+      setCustomFieldsLoading(true)
+      try {
+        const answerFilter = initialSeries
+          ? `_sfsures_reservationseries_value eq ${initialSeries.id}`
+          : initialReservation
+            ? `_sfsures_reservationoccurrence_value eq ${initialReservation.id}`
+            : ''
+        const [definitionResult, answerResult] = await Promise.all([
+          Sfsures_attributedefinitionsService.getAll({
+            select: [
+              'sfsures_attributedefinitionid',
+              '_sfsures_resourcetype_value',
+              '_sfsures_resource_value',
+              'sfsures_name',
+              'sfsures_datatype',
+              'sfsures_appliesto',
+              'sfsures_required',
+              'sfsures_choiceoptions',
+              'sfsures_displayorder',
+            ],
+            filter: `statecode eq 0 and sfsures_appliesto eq ${ATTRIBUTE_APPLIES_TO_RESERVATION}`,
+            orderBy: ['sfsures_displayorder asc', 'sfsures_name asc'],
+            top: 1000,
+          }),
+          answerFilter
+            ? Sfsures_reservationattributevaluesService.getAll({
+                select: [
+                  'sfsures_reservationattributevalueid',
+                  '_sfsures_attributedefinition_value',
+                  'sfsures_valuetext',
+                  'sfsures_valuechoice',
+                  'sfsures_valuenumber',
+                  'sfsures_valuedatetime',
+                  'sfsures_valueboolean',
+                ],
+                filter: `statecode eq 0 and ${answerFilter}`,
+                top: 1000,
+              })
+            : Promise.resolve({ data: [] as Sfsures_reservationattributevalues[] }),
+        ])
+
+        if (cancelled) return
+
+        const effectiveFields = ((definitionResult.data ?? []) as Sfsures_attributedefinitions[])
+          .filter((definition) => {
+            const definitionResourceTypeId = definition._sfsures_resourcetype_value ?? ''
+            const definitionResourceId = definition._sfsures_resource_value ?? ''
+            return (
+              definition.sfsures_appliesto === ATTRIBUTE_APPLIES_TO_RESERVATION &&
+              (definitionResourceTypeId === selectedResourceTypeId ||
+                definitionResourceId === selectedResourceId)
+            )
+          })
+          .map((definition) => ({
+            id: definition.sfsures_attributedefinitionid,
+            resourceTypeId: definition._sfsures_resourcetype_value ?? '',
+            resourceId: definition._sfsures_resource_value ?? '',
+            name: definition.sfsures_name,
+            dataType: definition.sfsures_datatype,
+            required: definition.sfsures_required === true,
+            choiceOptions: (definition.sfsures_choiceoptions ?? '')
+              .split(/\r?\n/)
+              .map((option) => option.trim())
+              .filter(Boolean),
+            displayOrder: definition.sfsures_displayorder ?? 0,
+          }))
+          .filter(
+            (definition) =>
+              definition.dataType === ATTRIBUTE_TYPE_TEXT ||
+              definition.dataType === ATTRIBUTE_TYPE_CHOICE
+          )
+          .sort((a, b) => a.displayOrder - b.displayOrder || a.name.localeCompare(b.name))
+
+        const loadedAnswers = ((answerResult.data ?? []) as Sfsures_reservationattributevalues[]).map(
+          (answer) => ({
+            id: answer.sfsures_reservationattributevalueid,
+            definitionId: answer._sfsures_attributedefinition_value ?? '',
+            value: reservationAnswerValueText(answer),
+          })
+        )
+
+        setCustomFields(effectiveFields)
+        setCustomFieldAnswers(loadedAnswers)
+        setCustomFieldDraft(
+          Object.fromEntries(
+            effectiveFields.map((field) => [
+              field.id,
+              loadedAnswers.find((answer) => answer.definitionId === field.id)?.value ?? '',
+            ])
+          )
+        )
+      } catch (err) {
+        console.error('Failed to load reservation custom fields:', err)
+        if (!cancelled) {
+          setCustomFields([])
+          setCustomFieldAnswers([])
+          setCustomFieldDraft({})
+          setError('Could not load reservation custom fields for this resource.')
+        }
+      } finally {
+        if (!cancelled) setCustomFieldsLoading(false)
+      }
+    }
+
+    void loadCustomFields()
+    return () => {
+      cancelled = true
+    }
+  }, [initialReservation, initialSeries, selectedResourceId, selectedResourceTypeId])
+
   const handleRecurrenceFrequencyChange = useCallback((frequency: RecurrenceFrequency) => {
     setRecurrenceFrequency(frequency)
     setConflicts([])
@@ -764,6 +945,63 @@ export function BookingModal({ start, end, initialReservation, initialSeries, on
     setMode('form')
   }, [bookingId])
 
+  const saveCustomFieldAnswers = useCallback(
+    async (
+      parent:
+        | { occurrenceId: string; seriesId?: never }
+        | { seriesId: string; occurrenceId?: never },
+      existingAnswers: ReservationCustomFieldAnswer[] = [],
+      allowDelete = true
+    ) => {
+      const parentId = 'occurrenceId' in parent ? parent.occurrenceId : parent.seriesId
+      const effectiveDefinitionIds = new Set(customFields.map((field) => field.id))
+
+      for (const definition of customFields) {
+        const desired = (customFieldDraft[definition.id] ?? '').trim()
+        const existing = existingAnswers.find((answer) => answer.definitionId === definition.id)
+
+        if (!desired && existing && allowDelete) {
+          await Sfsures_reservationattributevaluesService.delete(existing.id)
+          continue
+        }
+
+        if (desired && existing) {
+          await Sfsures_reservationattributevaluesService.update(existing.id, {
+            sfsures_valuetext: definition.dataType === ATTRIBUTE_TYPE_TEXT ? desired : null,
+            sfsures_valuechoice: definition.dataType === ATTRIBUTE_TYPE_CHOICE ? desired : null,
+          } as unknown as Parameters<typeof Sfsures_reservationattributevaluesService.update>[1])
+          continue
+        }
+
+        if (desired) {
+          await Sfsures_reservationattributevaluesService.create({
+            sfsures_name: `${parentId} - ${definition.name}`,
+            'sfsures_AttributeDefinition@odata.bind': `/sfsures_attributedefinitions(${definition.id})`,
+            ...('occurrenceId' in parent
+              ? {
+                  'sfsures_ReservationOccurrence@odata.bind': `/sfsures_reservationoccurrences(${parent.occurrenceId})`,
+                }
+              : {
+                  'sfsures_ReservationSeries@odata.bind': `/sfsures_reservationserieses(${parent.seriesId})`,
+                }),
+            ...reservationAnswerValueFields(definition, desired),
+            statecode: 0,
+            statuscode: 1,
+          } as unknown as Parameters<typeof Sfsures_reservationattributevaluesService.create>[0])
+        }
+      }
+
+      if (allowDelete) {
+        for (const existing of existingAnswers) {
+          if (!effectiveDefinitionIds.has(existing.definitionId)) {
+            await Sfsures_reservationattributevaluesService.delete(existing.id)
+          }
+        }
+      }
+    },
+    [customFieldDraft, customFields]
+  )
+
   // ---- Submit handler ----
   const handleSubmit = useCallback(async () => {
     setError('')
@@ -804,6 +1042,25 @@ export function BookingModal({ start, end, initialReservation, initialSeries, on
           ? 'Select an active, mapped App User with Book access to this resource.'
           : 'Your App User is not mapped to an active Dataverse User. Contact an administrator.'
       )
+      return
+    }
+
+    const missingRequiredField = customFields.find(
+      (field) => field.required && !(customFieldDraft[field.id] ?? '').trim()
+    )
+    if (missingRequiredField) {
+      setError(`${missingRequiredField.name} is required.`)
+      return
+    }
+
+    const invalidChoiceField = customFields.find(
+      (field) =>
+        field.dataType === ATTRIBUTE_TYPE_CHOICE &&
+        (customFieldDraft[field.id] ?? '').trim() &&
+        !field.choiceOptions.includes((customFieldDraft[field.id] ?? '').trim())
+    )
+    if (invalidChoiceField) {
+      setError(`Choose a valid option for ${invalidChoiceField.name}.`)
       return
     }
 
@@ -1018,6 +1275,7 @@ export function BookingModal({ start, end, initialReservation, initialSeries, on
             selectedOwner.systemUserId
           ) as unknown as Parameters<typeof Sfsures_reservationoccurrencesService.update>[1]
         )
+        await saveCustomFieldAnswers({ occurrenceId: bookingId }, customFieldAnswers)
         auditTargetId = bookingId
         affectedRowIds = [bookingId]
         setSuccessScope('single')
@@ -1048,6 +1306,10 @@ export function BookingModal({ start, end, initialReservation, initialSeries, on
             initialSeries.id,
             makeSeriesFields(true) as unknown as Parameters<typeof Sfsures_reservationseriesesService.update>[1]
           )
+          await saveCustomFieldAnswers({ seriesId: initialSeries.id }, customFieldAnswers)
+          for (const occurrenceId of createdOccurrenceIds) {
+            await saveCustomFieldAnswers({ occurrenceId }, [], false)
+          }
 
           await Promise.all(
             initialSeries.activeOccurrenceIds.map((occurrenceId) =>
@@ -1109,6 +1371,10 @@ export function BookingModal({ start, end, initialReservation, initialSeries, on
               createdOccurrenceIds.push(occurrenceId)
             }
           }
+          await saveCustomFieldAnswers({ seriesId }, [], false)
+          for (const occurrenceId of createdOccurrenceIds) {
+            await saveCustomFieldAnswers({ occurrenceId }, [], false)
+          }
         } catch (writeErr) {
           const cleanupTasks = [
             ...createdOccurrenceIds.map((id) => Sfsures_reservationoccurrencesService.delete(id)),
@@ -1141,6 +1407,9 @@ export function BookingModal({ start, end, initialReservation, initialSeries, on
           makeOccurrenceFields(firstOccurrence) as unknown as Parameters<typeof Sfsures_reservationoccurrencesService.create>[0]
         )
         const createdBookingId = result.data?.sfsures_reservationoccurrenceid ?? null
+        if (createdBookingId) {
+          await saveCustomFieldAnswers({ occurrenceId: createdBookingId }, [], false)
+        }
         setBookingId(createdBookingId)
         auditTargetId = createdBookingId ?? undefined
         affectedRowIds = createdBookingId ? [createdBookingId] : []
@@ -1221,6 +1490,10 @@ export function BookingModal({ start, end, initialReservation, initialSeries, on
     reservationLimits.maxSpanWeeks,
     currentUser,
     selectedOwner,
+    customFields,
+    customFieldDraft,
+    customFieldAnswers,
+    saveCustomFieldAnswers,
     saveMode,
     bookingId,
     initialReservation,
@@ -1247,7 +1520,8 @@ export function BookingModal({ start, end, initialReservation, initialSeries, on
     !!endStr &&
     !saving &&
     !resourcesLoading &&
-    !ownersLoading
+    !ownersLoading &&
+    !customFieldsLoading
   const submitLabel = isSeriesEdit
     ? 'Save Series'
     : saveMode === 'edit'
@@ -1362,6 +1636,16 @@ export function BookingModal({ start, end, initialReservation, initialSeries, on
                   <div className={styles.summaryCommentsBlock}>
                     <p className={styles.summaryLabel}>Comments</p>
                     <p className={styles.summaryComments}>{comments.trim()}</p>
+                  </div>
+                )}
+                {customFieldSummary.length > 0 && (
+                  <div className={styles.summaryCommentsBlock}>
+                    <p className={styles.summaryLabel}>Custom Fields</p>
+                    {customFieldSummary.map(({ field, value }) => (
+                      <p key={field.id} className={styles.summaryComments}>
+                        <strong>{field.name}:</strong> {value}
+                      </p>
+                    ))}
                   </div>
                 )}
               </div>
@@ -1652,6 +1936,65 @@ export function BookingModal({ start, end, initialReservation, initialSeries, on
                 )}
               </section>
             )}
+
+            {customFieldsLoading ? (
+              <p className={styles.resourcesLoading}>
+                <span className={styles.spinner} style={{ borderTopColor: theme.primaryColor }} />
+                Loading custom fields...
+              </p>
+            ) : customFields.length > 0 ? (
+              <section className={styles.recurrenceSection} aria-labelledby="booking-custom-fields">
+                <p id="booking-custom-fields" className={styles.label}>
+                  Custom Fields
+                </p>
+                {customFields.map((field) => (
+                  <div key={field.id} className={styles.field}>
+                    <label className={styles.label} htmlFor={`booking-custom-field-${field.id}`}>
+                      {field.name}
+                      {field.required ? ' (Required)' : ''}
+                    </label>
+                    {field.dataType === ATTRIBUTE_TYPE_CHOICE ? (
+                      <select
+                        id={`booking-custom-field-${field.id}`}
+                        className={styles.select}
+                        value={customFieldDraft[field.id] ?? ''}
+                        required={field.required}
+                        aria-required={field.required}
+                        onChange={(event) => {
+                          setCustomFieldDraft((current) => ({
+                            ...current,
+                            [field.id]: event.target.value,
+                          }))
+                          setError('')
+                        }}
+                      >
+                        <option value="">Select an option...</option>
+                        {field.choiceOptions.map((option) => (
+                          <option key={option} value={option}>
+                            {option}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        id={`booking-custom-field-${field.id}`}
+                        className={styles.input}
+                        value={customFieldDraft[field.id] ?? ''}
+                        required={field.required}
+                        aria-required={field.required}
+                        onChange={(event) => {
+                          setCustomFieldDraft((current) => ({
+                            ...current,
+                            [field.id]: event.target.value,
+                          }))
+                          setError('')
+                        }}
+                      />
+                    )}
+                  </div>
+                ))}
+              </section>
+            ) : null}
 
             {/* Comments */}
             <div className={styles.field}>

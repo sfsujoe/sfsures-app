@@ -360,6 +360,55 @@
   overflow-wrap: anywhere;
 }
 
+.detailValueSection {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid #ededed;
+}
+
+.detailValueHeading {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #777;
+  margin: 0 0 0.5rem;
+}
+
+.detailValueList {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.625rem 0.875rem;
+  margin: 0;
+}
+
+.detailValueList div {
+  min-width: 0;
+}
+
+.detailValueList dt {
+  color: #666;
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.detailValueList dd {
+  margin: 0.125rem 0 0;
+  color: #222;
+  font-size: 0.875rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.detailValueMuted {
+  margin: 0;
+  color: #666;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
 .ownerSection {
   display: flex;
   align-items: center;
@@ -612,6 +661,10 @@
   .calendarWrap :global(.fc .fc-toolbar) {
     flex-wrap: wrap;
     gap: 0.5rem;
+  }
+
+  .detailValueList {
+    grid-template-columns: 1fr;
   }
 
   .actionRow {

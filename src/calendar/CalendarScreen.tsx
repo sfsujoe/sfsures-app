@@ -43,8 +43,12 @@ import { Sfsures_blackoutwindowsService } from '../generated/services/Sfsures_bl
 import { Sfsures_appusersService } from '../generated/services/Sfsures_appusersService'
 import { Sfsures_resourcesService } from '../generated/services/Sfsures_resourcesService'
 import { Sfsures_resourcetypesService } from '../generated/services/Sfsures_resourcetypesService'
+import { Sfsures_resourceattributevaluesService } from '../generated/services/Sfsures_resourceattributevaluesService'
+import { Sfsures_reservationattributevaluesService } from '../generated/services/Sfsures_reservationattributevaluesService'
 import { Office365UsersService } from '../generated/services/Office365UsersService'
 import type { Sfsures_resourcessfsures_calendarcolor } from '../generated/models/Sfsures_resourcesModel'
+import type { Sfsures_resourceattributevalues } from '../generated/models/Sfsures_resourceattributevaluesModel'
+import type { Sfsures_reservationattributevalues } from '../generated/models/Sfsures_reservationattributevaluesModel'
 import { useTheme } from '../theme/ThemeContext'
 import {
   resourceColorByValue,
@@ -98,6 +102,18 @@ interface ReservationOwnerDetails {
   photoUrl: string | null
 }
 
+interface DetailValue {
+  id: string
+  label: string
+  value: string
+}
+
+interface ReservationInfoDetails {
+  status: 'idle' | 'loading' | 'ready' | 'error'
+  resourceAttributes: DetailValue[]
+  customFields: DetailValue[]
+}
+
 interface OwnerLookupResult {
   appUserId: string
   status: 'ready' | 'unavailable'
@@ -109,6 +125,19 @@ type DeleteConfirmMode = 'occurrence' | 'series'
 
 const RECORD_STATUS_ACTIVE = 997330000
 const RECORD_STATUS_CANCELLED = 997330001
+
+const RESERVATION_ATTRIBUTE_VALUE_SELECT = [
+  'sfsures_reservationattributevalueid',
+  '_sfsures_attributedefinition_value',
+  '_sfsures_reservationoccurrence_value',
+  '_sfsures_reservationseries_value',
+  'sfsures_attributedefinitionname',
+  'sfsures_valuetext',
+  'sfsures_valuechoice',
+  'sfsures_valuenumber',
+  'sfsures_valuedatetime',
+  'sfsures_valueboolean',
+]
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -233,6 +262,27 @@ function reservationSeriesIdFor(event: EventInput | null): string {
   return typeof seriesId === 'string' ? seriesId : ''
 }
 
+function typedValueText(
+  row: Pick<
+    Sfsures_resourceattributevalues | Sfsures_reservationattributevalues,
+    | 'sfsures_valueboolean'
+    | 'sfsures_valuechoice'
+    | 'sfsures_valuedatetime'
+    | 'sfsures_valuenumber'
+    | 'sfsures_valuetext'
+  >
+): string {
+  if (row.sfsures_valuetext != null) return row.sfsures_valuetext
+  if (row.sfsures_valuechoice != null) return row.sfsures_valuechoice
+  if (row.sfsures_valuenumber != null) return String(row.sfsures_valuenumber)
+  if (row.sfsures_valuedatetime != null) {
+    const dateValue = new Date(row.sfsures_valuedatetime)
+    return isNaN(dateValue.getTime()) ? row.sfsures_valuedatetime : dateValue.toLocaleString()
+  }
+  if (row.sfsures_valueboolean != null) return row.sfsures_valueboolean ? 'Yes' : 'No'
+  return ''
+}
+
 function seriesFrequencyFromDataverse(value: unknown): EditableReservationSeries['frequency'] | null {
   const numericValue = Number(value)
   if (numericValue === 997330000) return 'daily'
@@ -303,6 +353,11 @@ export function CalendarScreen({ onOpenAdmin }: CalendarScreenProps) {
   const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null)
   const [profilePhotoUnavailable, setProfilePhotoUnavailable] = useState(false)
   const [ownerLookupResult, setOwnerLookupResult] = useState<OwnerLookupResult | null>(null)
+  const [reservationInfoDetails, setReservationInfoDetails] = useState<ReservationInfoDetails>({
+    status: 'idle',
+    resourceAttributes: [],
+    customFields: [],
+  })
 
   // Reservation modal state — non-null when the modal is open.
   const [bookingSlot, setBookingSlot] = useState<{ start: Date; end: Date } | null>(null)
@@ -489,6 +544,151 @@ export function CalendarScreen({ onOpenAdmin }: CalendarScreenProps) {
     }
   }, [cachedSelectedOwner, selectedOwnerId])
 
+  useEffect(() => {
+    if (!selectedEvent || selectedEvent.extendedProps?.type !== 'occurrence') {
+      return
+    }
+
+    const occurrenceId = selectedEvent.id
+    const resourceId = reservationResourceIdFor(selectedEvent)
+    const seriesId = reservationSeriesIdFor(selectedEvent)
+    let cancelled = false
+
+    async function loadReservationInfoDetails() {
+      if (!occurrenceId || !resourceId) {
+        setReservationInfoDetails({
+          status: 'ready',
+          resourceAttributes: [],
+          customFields: [],
+        })
+        return
+      }
+
+      setReservationInfoDetails({
+        status: 'loading',
+        resourceAttributes: [],
+        customFields: [],
+      })
+
+      try {
+        const [resourceAttributeResult, occurrenceAnswerResult, seriesAnswerResult] =
+          await Promise.all([
+            Sfsures_resourceattributevaluesService.getAll({
+              select: [
+                'sfsures_resourceattributevalueid',
+                '_sfsures_attributedefinition_value',
+                'sfsures_attributedefinitionname',
+                'sfsures_valuetext',
+                'sfsures_valuechoice',
+                'sfsures_valuenumber',
+                'sfsures_valuedatetime',
+                'sfsures_valueboolean',
+              ],
+              filter: `statecode eq 0 and _sfsures_resource_value eq ${resourceId}`,
+              top: 1000,
+            }),
+            Sfsures_reservationattributevaluesService.getAll({
+              select: RESERVATION_ATTRIBUTE_VALUE_SELECT,
+              filter: `statecode eq 0 and _sfsures_reservationoccurrence_value eq ${occurrenceId}`,
+              top: 1000,
+            }),
+            seriesId
+              ? Sfsures_reservationattributevaluesService.getAll({
+                  select: RESERVATION_ATTRIBUTE_VALUE_SELECT,
+                  filter: `statecode eq 0 and _sfsures_reservationseries_value eq ${seriesId}`,
+                  top: 1000,
+                })
+              : Promise.resolve({ data: [] as Sfsures_reservationattributevalues[] }),
+          ])
+
+        if (cancelled) return
+
+        const resourceAttributes = (
+          (resourceAttributeResult.data ?? []) as Sfsures_resourceattributevalues[]
+        )
+          .map((row) => ({
+            id: row.sfsures_resourceattributevalueid,
+            label: row.sfsures_attributedefinitionname ?? 'Resource Attribute',
+            value: typedValueText(row).trim(),
+          }))
+          .filter((item) => item.value)
+          .sort((a, b) => a.label.localeCompare(b.label))
+
+        let occurrenceAnswerRows = (
+          (occurrenceAnswerResult.data ?? []) as Sfsures_reservationattributevalues[]
+        ).filter((row) => row._sfsures_reservationoccurrence_value === occurrenceId)
+        let seriesAnswerRows = (
+          (seriesAnswerResult.data ?? []) as Sfsures_reservationattributevalues[]
+        ).filter((row) => row._sfsures_reservationseries_value === seriesId)
+
+        if (occurrenceAnswerRows.length === 0 && seriesAnswerRows.length === 0) {
+          const fallbackAnswerResult = await Sfsures_reservationattributevaluesService.getAll({
+            select: RESERVATION_ATTRIBUTE_VALUE_SELECT,
+            filter: 'statecode eq 0',
+            top: 5000,
+          })
+          const fallbackAnswerRows = (
+            (fallbackAnswerResult.data ?? []) as Sfsures_reservationattributevalues[]
+          )
+          occurrenceAnswerRows = fallbackAnswerRows.filter(
+            (row) => row._sfsures_reservationoccurrence_value === occurrenceId
+          )
+          seriesAnswerRows = seriesId
+            ? fallbackAnswerRows.filter(
+                (row) => row._sfsures_reservationseries_value === seriesId
+              )
+            : []
+        }
+
+        const occurrenceAnswers = occurrenceAnswerRows
+          .map((row) => ({
+            id: row.sfsures_reservationattributevalueid,
+            definitionId: row._sfsures_attributedefinition_value ?? '',
+            label: row.sfsures_attributedefinitionname ?? 'Custom Field',
+            value: typedValueText(row).trim(),
+          }))
+          .filter((item) => item.value)
+
+        const usedDefinitionIds = new Set(
+          occurrenceAnswers.map((answer) => answer.definitionId).filter(Boolean)
+        )
+        const seriesAnswers = seriesAnswerRows
+          .map((row) => ({
+            id: row.sfsures_reservationattributevalueid,
+            definitionId: row._sfsures_attributedefinition_value ?? '',
+            label: row.sfsures_attributedefinitionname ?? 'Custom Field',
+            value: typedValueText(row).trim(),
+          }))
+          .filter((item) => item.value && !usedDefinitionIds.has(item.definitionId))
+
+        const customFields = [...occurrenceAnswers, ...seriesAnswers]
+          .map(({ id, label, value }) => ({ id, label, value }))
+          .sort((a, b) => a.label.localeCompare(b.label))
+
+        setReservationInfoDetails({
+          status: 'ready',
+          resourceAttributes,
+          customFields,
+        })
+      } catch (err) {
+        console.warn('Reservation detail values could not be loaded:', err)
+        if (!cancelled) {
+          setReservationInfoDetails({
+            status: 'error',
+            resourceAttributes: [],
+            customFields: [],
+          })
+        }
+      }
+    }
+
+    void loadReservationInfoDetails()
+
+    return () => {
+      cancelled = true
+    }
+  }, [selectedEvent])
+
   const loadRange = useCallback(
     async (rangeStart: Date, rangeEnd: Date) => {
       const startIso = rangeStart.toISOString().split('.')[0] + 'Z'
@@ -656,6 +856,11 @@ export function CalendarScreen({ onOpenAdmin }: CalendarScreenProps) {
 
   const closeReservationInfo = useCallback(() => {
     setSelectedEvent(null)
+    setReservationInfoDetails({
+      status: 'idle',
+      resourceAttributes: [],
+      customFields: [],
+    })
     setDeleteConfirmMode(null)
     setDeletingReservation(false)
     setLoadingSeriesEdit(false)
@@ -673,6 +878,11 @@ export function CalendarScreen({ onOpenAdmin }: CalendarScreenProps) {
     setReservationActionError('')
 
     if (arg.event.extendedProps.type === 'blackout') {
+      setReservationInfoDetails({
+        status: 'idle',
+        resourceAttributes: [],
+        customFields: [],
+      })
       setSelectedEvent({
         id: arg.event.id,
         title: arg.event.title,
@@ -682,6 +892,11 @@ export function CalendarScreen({ onOpenAdmin }: CalendarScreenProps) {
       })
       return
     }
+    setReservationInfoDetails({
+      status: 'loading',
+      resourceAttributes: [],
+      customFields: [],
+    })
     setSelectedEvent({
       id: arg.event.id,
       title: arg.event.title,
@@ -1189,6 +1404,42 @@ export function CalendarScreen({ onOpenAdmin }: CalendarScreenProps) {
                   <section className={styles.commentsSection} aria-label="Reservation comments">
                     <p className={styles.commentsLabel}>Comments</p>
                     <p className={styles.commentsText}>{selectedEventComments}</p>
+                  </section>
+                )}
+                {reservationInfoDetails.status === 'loading' && (
+                  <section className={styles.detailValueSection} aria-label="Reservation details">
+                    <p className={styles.detailValueMuted}>Loading reservation details...</p>
+                  </section>
+                )}
+                {reservationInfoDetails.status === 'error' && (
+                  <section className={styles.detailValueSection} aria-label="Reservation details">
+                    <p className={styles.detailValueMuted}>Additional details unavailable.</p>
+                  </section>
+                )}
+                {reservationInfoDetails.resourceAttributes.length > 0 && (
+                  <section className={styles.detailValueSection} aria-label="Resource attributes">
+                    <p className={styles.detailValueHeading}>Resource Attributes</p>
+                    <dl className={styles.detailValueList}>
+                      {reservationInfoDetails.resourceAttributes.map((item) => (
+                        <div key={item.id}>
+                          <dt>{item.label}</dt>
+                          <dd>{item.value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </section>
+                )}
+                {reservationInfoDetails.customFields.length > 0 && (
+                  <section className={styles.detailValueSection} aria-label="Custom field answers">
+                    <p className={styles.detailValueHeading}>Custom Fields</p>
+                    <dl className={styles.detailValueList}>
+                      {reservationInfoDetails.customFields.map((item) => (
+                        <div key={item.id}>
+                          <dt>{item.label}</dt>
+                          <dd>{item.value}</dd>
+                        </div>
+                      ))}
+                    </dl>
                   </section>
                 )}
                 <section className={styles.ownerSection} aria-label="Reservation owner">

@@ -36,6 +36,7 @@ export interface Sfsures_attributedefinitionsBase {
   sfsures_displayorder?: number;
   sfsures_name: string;
   sfsures_required?: boolean;
+  "sfsures_Resource@odata.bind"?: string;
   "sfsures_ResourceType@odata.bind"?: string;
   statecode: Sfsures_attributedefinitionsstatecode;
   statuscode?: Sfsures_attributedefinitionsstatuscode;
@@ -58,6 +59,7 @@ export interface Sfsures_attributedefinitions extends Sfsures_attributedefinitio
   sfsures_appliestoname?: string;
   sfsures_datatypename?: string;
   sfsures_requiredname?: string;
+  sfsures_resourcename?: string;
   sfsures_resourcetypename?: string;
   statecodename?: string;
   statuscodename?: string;
@@ -72,6 +74,8 @@ export interface Sfsures_attributedefinitions extends Sfsures_attributedefinitio
   _modifiedonbehalfby_value?: string;
   organizationid?: object;
   _organizationid_value?: string;
+  sfsures_resource?: object;
+  _sfsures_resource_value?: string;
   sfsures_resourcetype?: object;
   _sfsures_resourcetype_value?: string;
 }

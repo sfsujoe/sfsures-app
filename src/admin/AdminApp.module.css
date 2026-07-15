@@ -19,7 +19,8 @@
 .backButton,
 .navButton,
 .primaryButton,
-.secondaryButton {
+.secondaryButton,
+.dangerButton {
   min-height: 38px;
   border-radius: 6px;
   font: inherit;
@@ -171,8 +172,21 @@
   background: #f3f3f3;
 }
 
+.dangerButton {
+  border: 1px solid #b91c1c;
+  background: #b91c1c;
+  color: #ffffff;
+  padding: 0.45rem 0.875rem;
+}
+
+.dangerButton:hover:not(:disabled) {
+  border-color: #991b1b;
+  background: #991b1b;
+}
+
 .primaryButton:disabled,
-.secondaryButton:disabled {
+.secondaryButton:disabled,
+.dangerButton:disabled {
   cursor: not-allowed;
   opacity: 0.66;
 }
@@ -824,6 +838,10 @@
   max-height: min(42dvh, 18rem);
 }
 
+.confirmModal {
+  width: min(100%, 32rem);
+}
+
 .resourceListModal {
   width: min(100%, 46rem);
 }
@@ -891,6 +909,13 @@
 
 .modalFooterActions {
   justify-content: flex-end;
+}
+
+.confirmText {
+  margin: 0;
+  color: #333333;
+  font-size: 0.9375rem;
+  line-height: 1.5;
 }
 
 .resourcePhotoPreviewBody {
@@ -1425,10 +1450,15 @@
 .attributeOptionsField { grid-column: 1 / -1; }
 .attributeFormActions { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 0.625rem; }
 .attributeDefinitionList { display: grid; gap: 0.5rem; }
-.attributeDefinitionItem { display: grid; gap: 0.15rem; border: 1px solid #ddd; border-radius: 6px; background: white; padding: 0.7rem; text-align: left; cursor: pointer; }
+.attributeDefinitionRow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.5rem; align-items: center; }
+.attributeDefinitionItem { width: 100%; display: grid; gap: 0.15rem; border: 1px solid #ddd; border-radius: 6px; background: white; padding: 0.7rem; text-align: left; cursor: pointer; }
 .attributeDefinitionItem:hover { border-color: var(--admin-primary, #442C8B); background: #f8f7fb; }
 .attributeDefinitionItem:disabled { cursor: not-allowed; opacity: 0.68; }
 .attributeDefinitionItem span { color: #666; font-size: 0.75rem; }
+.attributeValueEditor { display: grid; gap: 0.75rem; border-top: 1px solid #ececec; padding-top: 1rem; }
+.attributeValueEditor h3 { margin: 0; font-size: 0.9rem; }
+.attributeValueGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem; }
+.attributeSourceNote { display: block; margin-top: 0.1rem; color: #666666; font-size: 0.75rem; font-weight: 600; }
 
 .srOnly {
   position: absolute;
