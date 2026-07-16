@@ -2,13 +2,11 @@
 
 This folder is the local reference library for the SFSU Resource Reservation System, a Power Apps Code App built with React, TypeScript, Vite, FullCalendar, Office365Users, and Microsoft Dataverse. The app is intended to replace LabArchives Scheduler for SFSU resource booking, with a Dataverse-backed model for resources, reservations, blackout windows, group-scoped access, theming, audit logging, and per-department managed-solution replication.
 
-Last indexed: 2026-07-14.
+Last indexed: 2026-07-16.
 
-## Next Session: Stop Before Implementation
+## Next Session: Verify Attribute and Field Flows
 
-The first action in the next session is to ask Joe for his **UI nomenclature comments**. Do not implement reservation custom-field UI until he has conveyed them and the terminology is agreed.
-
-After that conversation, the absolute #1 priority is reservation custom-field administration plus New/Edit Reservation modal rendering and persistence. Use [Group Permissions and Reservation Custom Fields Addendum](sfsu_group_permissions_and_reservation_custom_fields_addendum.md) as the current resume point.
+Resource Attributes and reservation Custom Fields are now implemented at both Resource Type and Resource scope, with inheritance surfaced in Resource-specific modals. A generated Dataverse `*name` field bug in the reservation-info modal was fixed locally; the next session should publish and verify Custom Field answer display end to end. Use [Generated Dataverse Name Fields Addendum](sfsu_generated_dataverse_name_fields_addendum.md) and [Resource Attributes and Custom Fields Addendum](sfsu_resource_attributes_and_custom_fields_addendum.md) as the current resume points.
 
 ## Quick Project Shape
 
@@ -20,21 +18,23 @@ After that conversation, the absolute #1 priority is reservation custom-field ad
 
 ## Recommended Reading Order
 
-1. [Group Permissions and Reservation Custom Fields Addendum](sfsu_group_permissions_and_reservation_custom_fields_addendum.md) for the current resume instruction, group-only permission behavior, Resource custom fields, and the reservation-answer schema/data-source extension.
-2. [Dataverse Build Sheet](sfsu_dataverse_build_sheet.md) for the canonical original 14-table schema and replication spec; read the new addendum above for the fifteenth-table extension. Note: this file currently has copied project/export noise before the actual build-sheet heading; search for `Dataverse Build Sheet` if needed.
-3. [Security Roles and Teams Addendum](sfsu_security_roles_and_teams_addendum.md) for the current enforcement model; it supersedes older role/team next steps.
-4. [Threat Model Addendum](sfsu_threat_model_addendum.md) for platform-enforced vs app-enforced rules and accepted residual risks.
-5. [UI Build Kickoff Addendum](sfsu_ui_build_kickoff_addendum.md) for the published base schema, generated service names, and Code App scaffold facts.
-6. [Booking Modal and Layout Fix Addendum](sfsu_booking_modal_and_layout_fix_addendum.md) for the current end-to-end booking MVP and Dataverse lookup conventions.
-7. [UI Branding and Booking Confirmation Polish Addendum](sfsu_ui_branding_and_booking_confirmation_addendum.md) for the current modal confirmation behavior, bundled SFSU logo/font defaults, and calendar visual polish.
-8. [Reservation Details, Comments, and Limits Addendum](sfsu_ui_reservation_details_comments_and_limits_addendum.md) for the current header/profile polish, reservation detail modal, comments, and App Settings-backed reservation limits.
-9. [Recurrence, App Permissions, and Calendar Actions Addendum](sfsu_recurrence_permissions_calendar_addendum.md) for current recurring reservation workflows, app-level group permissions, edit/delete reservation actions, and calendar-layout decisions.
-10. [Admin Theme, Users, Groups, and Audit Logging Addendum](sfsu_admin_theme_users_groups_audit_addendum.md) for the lazy admin shell, SFSU preset theming, resource calendar colors, and the earlier Users/Groups/audit implementation.
-11. [App User Dataverse Mapping and Safer Onboarding Addendum](sfsu_appuser_dataverse_mapping_and_onboarding_addendum.md) for the App User-to-System User lookup, fail-closed onboarding, and Add User confirmation.
-12. [Admin Resources Catalog and Photos Addendum](sfsu_admin_resources_catalog_addendum.md) for the Resources admin screen, Resource Photo image upload/preview, inactive Resource Type reservability, and Resource data-source refresh notes.
-13. [Accessibility Tier 1 Addendum](sfsu_accessibility_tier1_addendum.md) for completed accessibility fixes and queued DPRC/WCAG work.
-14. [Environment and Demo Planning Addendum](sfsu_environment_and_demo_planning_addendum.md) for sandbox/production environment strategy and demo plan.
-15. Older planning and exploration docs are useful for rationale, but treat newer addenda above as current when they conflict.
+1. [Generated Dataverse Name Fields Addendum](sfsu_generated_dataverse_name_fields_addendum.md) for the current reservation-info modal fix and the durable rule against selecting generated phantom custom `*name` fields.
+2. [Resource Attributes and Custom Fields Addendum](sfsu_resource_attributes_and_custom_fields_addendum.md) for Resource Attributes vs Custom Fields terminology, inheritance behavior, reservation answer persistence, and calendar detail display.
+3. [Group Permissions and Reservation Custom Fields Addendum](sfsu_group_permissions_and_reservation_custom_fields_addendum.md) for group-only permission behavior and the reservation-answer schema/data-source extension; its "not yet implemented" UI status is superseded by the newer addendum above.
+4. [Dataverse Build Sheet](sfsu_dataverse_build_sheet.md) for the canonical original 14-table schema and replication spec; read the custom-field addenda above for the fifteenth-table extension. Note: this file currently has copied project/export noise before the actual build-sheet heading; search for `Dataverse Build Sheet` if needed.
+5. [Security Roles and Teams Addendum](sfsu_security_roles_and_teams_addendum.md) for the current enforcement model; it supersedes older role/team next steps.
+6. [Threat Model Addendum](sfsu_threat_model_addendum.md) for platform-enforced vs app-enforced rules and accepted residual risks.
+7. [UI Build Kickoff Addendum](sfsu_ui_build_kickoff_addendum.md) for the published base schema, generated service names, and Code App scaffold facts.
+8. [Booking Modal and Layout Fix Addendum](sfsu_booking_modal_and_layout_fix_addendum.md) for the current end-to-end booking MVP and Dataverse lookup conventions.
+9. [UI Branding and Booking Confirmation Polish Addendum](sfsu_ui_branding_and_booking_confirmation_addendum.md) for the current modal confirmation behavior, bundled SFSU logo/font defaults, and calendar visual polish.
+10. [Reservation Details, Comments, and Limits Addendum](sfsu_ui_reservation_details_comments_and_limits_addendum.md) for the current header/profile polish, reservation detail modal, comments, and App Settings-backed reservation limits.
+11. [Recurrence, App Permissions, and Calendar Actions Addendum](sfsu_recurrence_permissions_calendar_addendum.md) for current recurring reservation workflows, app-level group permissions, edit/delete reservation actions, and calendar-layout decisions.
+12. [Admin Theme, Users, Groups, and Audit Logging Addendum](sfsu_admin_theme_users_groups_audit_addendum.md) for the lazy admin shell, SFSU preset theming, resource calendar colors, and the earlier Users/Groups/audit implementation.
+13. [App User Dataverse Mapping and Safer Onboarding Addendum](sfsu_appuser_dataverse_mapping_and_onboarding_addendum.md) for the App User-to-System User lookup, fail-closed onboarding, and Add User confirmation.
+14. [Admin Resources Catalog and Photos Addendum](sfsu_admin_resources_catalog_addendum.md) for the Resources admin screen, Resource Photo image upload/preview, inactive Resource Type reservability, and Resource data-source refresh notes.
+15. [Accessibility Tier 1 Addendum](sfsu_accessibility_tier1_addendum.md) for completed accessibility fixes and queued DPRC/WCAG work.
+16. [Environment and Demo Planning Addendum](sfsu_environment_and_demo_planning_addendum.md) for sandbox/production environment strategy and demo plan.
+17. Older planning and exploration docs are useful for rationale, but treat newer addenda above as current when they conflict.
 
 ## Session Workflow
 
@@ -57,14 +57,16 @@ After that conversation, the absolute #1 priority is reservation custom-field ad
 | [sfsu_dataverse_build_sheet.md](sfsu_dataverse_build_sheet.md) | Canonical reference for the original 14-table schema, ownership model, roles, and pre-publish checks; use the group-permissions/custom-fields addendum for the fifteenth-table extension. |
 | [sfsu_docs_workflow_and_skills_addendum.md](sfsu_docs_workflow_and_skills_addendum.md) | Records the docs index strategy and the personal Codex skills for starting and closing SFSURES sessions. |
 | [sfsu_environment_and_demo_planning_addendum.md](sfsu_environment_and_demo_planning_addendum.md) | Captures environment inventory, sandbox/production ask, demo strategy, DoS/flooding analysis, and recovery controls. |
+| [sfsu_generated_dataverse_name_fields_addendum.md](sfsu_generated_dataverse_name_fields_addendum.md) | Documents the reservation-info Custom Fields bug and the durable rule against selecting generated phantom custom `*name` fields. |
 | [sfsu_governance_and_claudecode_addendum.md](sfsu_governance_and_claudecode_addendum.md) | Explains governance decisions: VS Code workflow, separate per-department instances, stable `sfsures` prefix, hand-built schema, and ownership continuity. |
-| [sfsu_group_permissions_and_reservation_custom_fields_addendum.md](sfsu_group_permissions_and_reservation_custom_fields_addendum.md) | Records group-only Resource Type permissions, protected system groups, Admin booking exceptions, Resource custom fields, the reservation-answer schema/data sources, and the next-session nomenclature-first instruction. |
+| [sfsu_group_permissions_and_reservation_custom_fields_addendum.md](sfsu_group_permissions_and_reservation_custom_fields_addendum.md) | Records group-only Resource Type permissions, protected system groups, Admin booking exceptions, early Resource custom fields, and the reservation-answer schema/data sources. |
 | [sfsu_learning_app_runbook.md](sfsu_learning_app_runbook.md) | Step-by-step throwaway one-table app used to learn and re-test Dataverse read/write behavior in a Code App. |
 | [sfsu_onboarding_and_access_exploration.md](sfsu_onboarding_and_access_exploration.md) | Historical exploration of first-admin onboarding, Entra/AD limitations, Dataverse teams, and unresolved access forks at that time. |
 | [sfsu_reservation_system_chat_summary.md](sfsu_reservation_system_chat_summary.md) | Early full-chat summary of product scope, permissions, SF State ID identity, no-approval workflow, and vibe-coding expectations. |
 | [sfsu_reservation_system_progress.md](sfsu_reservation_system_progress.md) | Early planning runbook covering metadata-driven resources, materialized recurrence occurrences, FullCalendar direction, and delegation risk. |
 | [sfsu_reservation_system_summary.md](sfsu_reservation_system_summary.md) | Early structured product summary for the intended reservation system and AI prompt context. |
 | [sfsu_recurrence_permissions_calendar_addendum.md](sfsu_recurrence_permissions_calendar_addendum.md) | Documents recurring reservation create/edit/delete workflows, seeded app-permission groups, reservation-info actions, and calendar layout decisions. |
+| [sfsu_resource_attributes_and_custom_fields_addendum.md](sfsu_resource_attributes_and_custom_fields_addendum.md) | Documents Resource Attributes vs Custom Fields, Resource Type/Resource scoped inheritance, booking answer persistence, deletion behavior, and calendar detail display. |
 | [sfsu_schema_build_complete_addendum.md](sfsu_schema_build_complete_addendum.md) | Historical schema-build completion note; still useful for rationale, but some ownership/naming facts were superseded by the security roles/teams addendum. |
 | [sfsu_security_roles_and_teams_addendum.md](sfsu_security_roles_and_teams_addendum.md) | Current source for security roles, Owner teams, reservation-table ownership, privilege inheritance, and enforcement-layer open tests. |
 | [sfsu_threat_model_addendum.md](sfsu_threat_model_addendum.md) | Current source for known vulnerabilities, API-bypass risks, metadata discoverability, audit-log limitations, and detective controls. |
@@ -75,7 +77,7 @@ After that conversation, the absolute #1 priority is reservation custom-field ad
 
 ## Dataverse Schema Documentation
 
-Start with [sfsu_dataverse_build_sheet.md](sfsu_dataverse_build_sheet.md) for the original dependency-first build order, then read [sfsu_group_permissions_and_reservation_custom_fields_addendum.md](sfsu_group_permissions_and_reservation_custom_fields_addendum.md) for the reservation-answer extension. The current solution has 15 custom tables:
+Start with [sfsu_dataverse_build_sheet.md](sfsu_dataverse_build_sheet.md) for the original dependency-first build order, then read [sfsu_group_permissions_and_reservation_custom_fields_addendum.md](sfsu_group_permissions_and_reservation_custom_fields_addendum.md) for the reservation-answer extension and [sfsu_resource_attributes_and_custom_fields_addendum.md](sfsu_resource_attributes_and_custom_fields_addendum.md) for the current Resource Attribute/Custom Field implementation. The current solution has 15 custom tables:
 
 1. Resource Type
 2. Attribute Definition
@@ -102,14 +104,16 @@ Schema rules to preserve:
 - Resource includes palette-only `Calendar Color` for reservation event colors; current choices are the SFSU primary/secondary palette colors except Bridge.
 - Resource includes optional Dataverse Image column `Resource Photo` (`sfsures_resourcephoto`); generated metadata also exposes lowercase `sfsures_resourcephoto_url`, timestamp, id, and image upload/download helpers.
 - Attribute Definition includes required `Applies To`: Resource `997330000` or Reservation `997330001`.
-- Resource attributes use five typed value columns in Resource Attribute Value, not JSON.
+- Attribute Definition can be scoped to a Resource Type or a specific Resource. Resource scoped definitions are managed in Resource-specific modals; Resource Type scoped definitions are inherited.
+- Resource Attributes use five typed value columns in Resource Attribute Value, not JSON. They are admin-entered Resource facts, not reservation questions.
+- Custom Fields are reservation questions shown in New/Edit Reservation and answered into Reservation Attribute Value.
 - Reservation answers use the same five typed value shapes in the separate Reservation Attribute Value table. Each answer references Attribute Definition and exactly one of Reservation Series or Reservation Occurrence; active alternate keys prevent duplicates per parent/definition pair.
 - Group resource-type access and group resource access are two separate explicit junction tables.
 - App User is keyed by write-once SF State ID and has an optional `Dataverse User` lookup to the built-in System User table for future reservation `OwnerId` assignment.
 - Group includes stable `Group Key` and `Is System Group` fields. App logic keys off system group keys such as `APP_ADMINS` and `REPORT_VIEWERS`, not mutable group display names. Group Key should stay hidden from normal app UI.
 - Audit Log is append-only, denormalized on purpose, and should not use live lookup relationships for historical context. It now includes generic `Target Key` plus split group action types for group creation/editing and membership add/remove.
 
-For generated TypeScript names, use [sfsu_ui_build_kickoff_addendum.md](sfsu_ui_build_kickoff_addendum.md). The CLI pluralizes some names unexpectedly, including `appsettingses` and `reservationserieses`.
+For generated TypeScript names, use [sfsu_ui_build_kickoff_addendum.md](sfsu_ui_build_kickoff_addendum.md). The CLI pluralizes some names unexpectedly, including `appsettingses` and `reservationserieses`. Also read [sfsu_generated_dataverse_name_fields_addendum.md](sfsu_generated_dataverse_name_fields_addendum.md) before adding new `$select` fields: generated custom `sfsures_*name` properties may be phantom display-name fields unless live Dataverse metadata proves they are real columns.
 
 ## Architecture and Decision History
 
@@ -117,13 +121,14 @@ Current architecture:
 
 - Code App built in VS Code, not Vibe, using React/TypeScript/Vite and the Power Apps npm CLI.
 - Dataverse is the backend, with generated service/model files under `src/generated/`.
+- Generated TypeScript models are helpful but not a complete `$select` contract; custom `sfsures_*name` fields that exist only on expanded interfaces must be verified or replaced with real table lookups.
 - Office365Users supplies the signed-in user's UPN; the app extracts the first 9 characters as SF State ID.
 - FullCalendar renders reservation occurrences and blackout windows.
 - App-level group membership drives UI visibility for app-admin/report-view capabilities and group-only Resource Type `View`/`Book` access; Dataverse roles still define the backend table-access boundary.
 - Individual Group Resource Access rows are retained but intentionally ignored at runtime. The shared permission resolver uses only Group Resource Type Access and excludes the protected `APP_ADMINS` and `REPORT_VIEWERS` groups.
 - App Admins have implicit visibility to every Resource Type and may book any Resource for themselves. Booking for another user still requires that selected owner to have ordinary group-derived `Book` access.
 - App User onboarding maps the Office365Users identity to exactly one enabled human Dataverse System User before creation; this keeps application identity/history separate from the security principal used by `OwnerId`.
-- Admin screens live behind a lazy-loaded left-rail shell so the calendar-first experience stays light. Settings, Users, Groups, and Resources are active; Blackouts and Reports remain placeholders. Groups uses separate permission/member dialogs, and Resources manages Resource metadata custom fields.
+- Admin screens live behind a lazy-loaded left-rail shell so the calendar-first experience stays light. Settings, Users, Groups, and Resources are active; Blackouts and Reports remain placeholders. Groups uses separate permission/member dialogs, and Resources manages Resource Attributes and reservation Custom Fields at Resource Type and Resource scope.
 - SFSU theme choices are preset-only; Source Sans 3 is fixed and arbitrary color/font selection is intentionally excluded from admin UI.
 - Resource reservation event colors use a palette-only Resource `Calendar Color` choice plus dynamic black/white event text for contrast.
 - Per-department instances are preferred over one campus-wide app; managed-solution export/import is the replication path.
@@ -167,8 +172,8 @@ Current MVP, based on the docs and source tree:
 - React/Vite Code App scaffold exists and is bound to the Power Apps environment in `power.config.json`.
 - All 15 custom Dataverse service/model files are generated, including Reservation Attribute Value; the built-in System User source is also generated.
 - `AccessGate` validates the signed-in user through Office365Users and App User rows before rendering content, then loads active app group memberships for UI permission flags.
-- `CalendarScreen` loads occurrences, blackout windows, and active resource calendar colors with delegation-safe query shapes and renders them with FullCalendar, including centered header branding, signed-in user profile photo, theme-driven date headers, 24-hour Week/Day views, resource-colored reservation events with contrast-aware text, and a reservation detail dialog with owner profile, comments, and edit/delete actions.
-- `BookingModal` creates and updates single reservations and recurring reservation series against real Dataverse data, including optional Comments and Admin owner selection, then shows a centered confirmation state with `Edit Reservation` and focused `OK`.
+- `CalendarScreen` loads occurrences, blackout windows, active resource calendar colors, Attribute Definition labels, Resource Attribute values, and Custom Field answers with delegation-safe query shapes and renders them with FullCalendar, including centered header branding, signed-in user profile photo, theme-driven date headers, 24-hour Week/Day views, resource-colored reservation events with contrast-aware text, and a reservation detail dialog with owner profile, comments, Resource Attribute values, Custom Field answers, and edit/delete actions.
+- `BookingModal` creates and updates single reservations and recurring reservation series against real Dataverse data, including optional Comments, Admin owner selection, and Text/Choice Custom Field answers, then shows a centered confirmation state with `Edit Reservation` and focused `OK`.
 - Recurring reservation create/edit supports daily, weekly, and monthly patterns with count/until end modes and generated occurrence rows.
 - Conflict detection against active occurrences and blackout windows is implemented for single bookings and recurring occurrence generation.
 - Theme values load through `ThemeContext` from `sfsures_appsettings`, with portable bundled SFSU logo and fixed Source Sans 3 defaults as fallback.
@@ -178,15 +183,15 @@ Current MVP, based on the docs and source tree:
 - Users screen is implemented with Office365Users directory search/typeahead, explicit Add User confirmation, App User-to-System User mapping, selected-user profile photo, disable/reactivate behavior, and per-user group membership checkboxes.
 - Groups screen is implemented with group search, custom group creation, selected-group details, separate accessible View/Edit Permissions and View/Edit Members dialogs, Resource Type `No access`/`View`/`Book` controls, protected App Admins/Report Viewers behavior, hidden auto-generated group keys, and membership count/type details.
 - Calendar visibility and the booking picker use group-derived Resource Type permissions. App Admins receive the explicit all-Resource visibility and self-booking exception; delegated booking still checks the selected owner's `Book` access.
-- Resources screen is implemented with stacked Resource Types and Resources sections, search/list/detail panes, modal create/edit flows, active/inactive and disabled/reactivated status controls, inherited non-reservable status for inactive Resource Types, `Show Resources` modal table, palette-only calendar color selection, Resource Photo upload/crop/thumbnail display, full-photo preview, and Resource Text/Choice metadata fields backed by Attribute Definition/Resource Attribute Value.
-- Attribute Definition now exposes `Applies To`, and the generated Reservation Attribute Value source contains typed answer columns plus Attribute Definition/Series/Occurrence lookups. No reservation-question UI uses it yet.
+- Resources screen is implemented with stacked Resource Types and Resources sections, search/list/detail panes, modal create/edit flows, active/inactive and disabled/reactivated status controls, inherited non-reservable status for inactive Resource Types, `Show Resources` modal table, palette-only calendar color selection, Resource Photo upload/crop/thumbnail display, full-photo preview, Resource Attributes, and reservation Custom Fields backed by Attribute Definition plus the relevant value tables.
+- Attribute Definition now exposes `Applies To` and Resource scope. Reservation Attribute Value is used by New/Edit Reservation Custom Fields and displayed in the calendar reservation-info modal.
 - Group creation and group membership changes write Audit Log rows using `GroupCreated`, `GroupMemberAdded`, and `GroupMemberRemoved`, including hidden group key in `Target Key`.
 - Resource catalog create/edit/status/photo changes write `ResourceCatalogEdited` Audit Log rows.
 - Tier 1 accessibility work is partly implemented: focus trap helper, dialog semantics, visible focus ring, keyboard booking path, and live regions.
 
 Future production work:
 
-- **Absolute next priority:** after Joe provides his UI nomenclature comments, implement reservation custom-field administration and New/Edit Reservation questions/answer persistence using `Applies To = Reservation` and Reservation Attribute Value.
+- Verify Resource Attribute values and Custom Field answers end to end in the published Power Apps runtime, including calendar reservation-info display and non-admin Booker privileges.
 - Extend custom-field input support beyond the currently implemented Text and fixed-option Choice types to Number/DateTime/Boolean when product needs justify them.
 - App-owned Resource Type filter control for users who can see more than one permitted type.
 - Admin screens for blackout windows and reports.
@@ -205,9 +210,10 @@ Future production work:
 
 ## Gaps, TODOs, and Questions
 
-- **Next session must begin by asking Joe for his UI nomenclature comments before any reservation custom-field implementation.** After terminology is locked, this work is the absolute #1 priority.
-- The current Resources screen does not yet select, filter, or explicitly write Attribute Definition `Applies To`. Do not seed Reservation definitions for production use until Resource and Reservation definitions are separated in the UI/data queries; otherwise reservation questions can appear as Resource metadata fields.
-- Reservation Attribute Value is generated but unused by app source. Implement required-field semantics, the exclusive Series-or-Occurrence parent invariant, and the agreed recurrence copy/edit behavior in a shared persistence path.
+- Verify the published runtime after the generated `*name` field fix; the reservation-info modal should show saved Custom Field answers for the clicked occurrence or its series.
+- Avoid future `$select` usage of generated custom `sfsures_*name` fields unless they are confirmed real Dataverse columns via metadata or exist in the generated `*Base` interface.
+- Verify Resource Attribute values, Custom Field creation, Custom Field deletion, and answer persistence as a non-admin Booker with real Dataverse privileges.
+- Reservation Attribute Value is now used by app source. Continue to keep the exclusive Series-or-Occurrence parent invariant visible when adding new create/edit paths or future field types.
 - Verify the new Reservation Attribute Value role privileges and lookup relationship behaviors with a real non-admin Booker; generated metadata confirms columns/ownership but does not prove security-role depth or cascade configuration.
 - `sfsu_dataverse_build_sheet.md` appears to include copied Claude/project UI text before the actual build-sheet content; clean that in a future docs pass.
 - `sfsu_schema_build_complete_addendum.md` contains superseded ownership/naming facts; add a superseded notice or revise it later.

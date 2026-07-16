@@ -45,10 +45,12 @@ import { Sfsures_resourcesService } from '../generated/services/Sfsures_resource
 import { Sfsures_resourcetypesService } from '../generated/services/Sfsures_resourcetypesService'
 import { Sfsures_resourceattributevaluesService } from '../generated/services/Sfsures_resourceattributevaluesService'
 import { Sfsures_reservationattributevaluesService } from '../generated/services/Sfsures_reservationattributevaluesService'
+import { Sfsures_attributedefinitionsService } from '../generated/services/Sfsures_attributedefinitionsService'
 import { Office365UsersService } from '../generated/services/Office365UsersService'
 import type { Sfsures_resourcessfsures_calendarcolor } from '../generated/models/Sfsures_resourcesModel'
 import type { Sfsures_resourceattributevalues } from '../generated/models/Sfsures_resourceattributevaluesModel'
 import type { Sfsures_reservationattributevalues } from '../generated/models/Sfsures_reservationattributevaluesModel'
+import type { Sfsures_attributedefinitions } from '../generated/models/Sfsures_attributedefinitionsModel'
 import { useTheme } from '../theme/ThemeContext'
 import {
   resourceColorByValue,
@@ -131,12 +133,16 @@ const RESERVATION_ATTRIBUTE_VALUE_SELECT = [
   '_sfsures_attributedefinition_value',
   '_sfsures_reservationoccurrence_value',
   '_sfsures_reservationseries_value',
-  'sfsures_attributedefinitionname',
   'sfsures_valuetext',
   'sfsures_valuechoice',
   'sfsures_valuenumber',
   'sfsures_valuedatetime',
   'sfsures_valueboolean',
+]
+
+const ATTRIBUTE_DEFINITION_LABEL_SELECT = [
+  'sfsures_attributedefinitionid',
+  'sfsures_name',
 ]
 
 // ---------------------------------------------------------------------------
@@ -260,6 +266,30 @@ function reservationCommentsFor(event: EventInput | null): string {
 function reservationSeriesIdFor(event: EventInput | null): string {
   const seriesId = event?.extendedProps?.seriesId
   return typeof seriesId === 'string' ? seriesId : ''
+}
+
+function normalizeDataverseId(value: string | undefined | null): string {
+  return (value ?? '').replace(/[{}]/g, '').toLowerCase()
+}
+
+function rowsFromSettled<T>(
+  result: PromiseSettledResult<{ data?: T[] }>,
+  label: string
+): T[] {
+  if (result.status === 'rejected') {
+    console.warn(`${label} could not be loaded:`, result.reason)
+    return []
+  }
+
+  return result.value.data ?? []
+}
+
+function definitionLabel(
+  labelsByDefinitionId: Map<string, string>,
+  definitionId: string | undefined | null,
+  fallback: string
+): string {
+  return labelsByDefinitionId.get(normalizeDataverseId(definitionId)) ?? fallback
 }
 
 function typedValueText(
@@ -571,13 +601,22 @@ export function CalendarScreen({ onOpenAdmin }: CalendarScreenProps) {
       })
 
       try {
-        const [resourceAttributeResult, occurrenceAnswerResult, seriesAnswerResult] =
-          await Promise.all([
+        const [
+          definitionResult,
+          resourceAttributeResult,
+          occurrenceAnswerResult,
+          seriesAnswerResult,
+        ] =
+          await Promise.allSettled([
+            Sfsures_attributedefinitionsService.getAll({
+              select: ATTRIBUTE_DEFINITION_LABEL_SELECT,
+              filter: 'statecode eq 0',
+              top: 1000,
+            }),
             Sfsures_resourceattributevaluesService.getAll({
               select: [
                 'sfsures_resourceattributevalueid',
                 '_sfsures_attributedefinition_value',
-                'sfsures_attributedefinitionname',
                 'sfsures_valuetext',
                 'sfsures_valuechoice',
                 'sfsures_valuenumber',
@@ -603,63 +642,104 @@ export function CalendarScreen({ onOpenAdmin }: CalendarScreenProps) {
 
         if (cancelled) return
 
-        const resourceAttributes = (
-          (resourceAttributeResult.data ?? []) as Sfsures_resourceattributevalues[]
+        const definitionLabelsById = new Map(
+          rowsFromSettled<Sfsures_attributedefinitions>(
+            definitionResult,
+            'Attribute definition labels'
+          )
+            .map((definition) => [
+              normalizeDataverseId(definition.sfsures_attributedefinitionid),
+              definition.sfsures_name?.trim() ?? '',
+            ] as const)
+            .filter(([id, name]) => id && name)
+        )
+
+        const resourceAttributes = rowsFromSettled<Sfsures_resourceattributevalues>(
+          resourceAttributeResult,
+          'Resource attribute values'
         )
           .map((row) => ({
             id: row.sfsures_resourceattributevalueid,
-            label: row.sfsures_attributedefinitionname ?? 'Resource Attribute',
+            label: definitionLabel(
+              definitionLabelsById,
+              row._sfsures_attributedefinition_value,
+              'Resource Attribute'
+            ),
             value: typedValueText(row).trim(),
           }))
           .filter((item) => item.value)
           .sort((a, b) => a.label.localeCompare(b.label))
 
-        let occurrenceAnswerRows = (
-          (occurrenceAnswerResult.data ?? []) as Sfsures_reservationattributevalues[]
-        ).filter((row) => row._sfsures_reservationoccurrence_value === occurrenceId)
-        let seriesAnswerRows = (
-          (seriesAnswerResult.data ?? []) as Sfsures_reservationattributevalues[]
-        ).filter((row) => row._sfsures_reservationseries_value === seriesId)
+        let occurrenceAnswerRows = rowsFromSettled<Sfsures_reservationattributevalues>(
+          occurrenceAnswerResult,
+          'Occurrence custom field answers'
+        )
+        let seriesAnswerRows = rowsFromSettled<Sfsures_reservationattributevalues>(
+          seriesAnswerResult,
+          'Series custom field answers'
+        )
 
         if (occurrenceAnswerRows.length === 0 && seriesAnswerRows.length === 0) {
-          const fallbackAnswerResult = await Sfsures_reservationattributevaluesService.getAll({
-            select: RESERVATION_ATTRIBUTE_VALUE_SELECT,
-            filter: 'statecode eq 0',
-            top: 5000,
-          })
-          const fallbackAnswerRows = (
-            (fallbackAnswerResult.data ?? []) as Sfsures_reservationattributevalues[]
-          )
-          occurrenceAnswerRows = fallbackAnswerRows.filter(
-            (row) => row._sfsures_reservationoccurrence_value === occurrenceId
-          )
-          seriesAnswerRows = seriesId
-            ? fallbackAnswerRows.filter(
-                (row) => row._sfsures_reservationseries_value === seriesId
-              )
-            : []
+          try {
+            const fallbackAnswerResult = await Sfsures_reservationattributevaluesService.getAll({
+              select: RESERVATION_ATTRIBUTE_VALUE_SELECT,
+              filter: 'statecode eq 0',
+              top: 5000,
+            })
+            const fallbackAnswerRows = (
+              (fallbackAnswerResult.data ?? []) as Sfsures_reservationattributevalues[]
+            )
+            const normalizedOccurrenceId = normalizeDataverseId(occurrenceId)
+            const normalizedSeriesId = normalizeDataverseId(seriesId)
+            occurrenceAnswerRows = fallbackAnswerRows.filter(
+              (row) =>
+                normalizeDataverseId(row._sfsures_reservationoccurrence_value) ===
+                normalizedOccurrenceId
+            )
+            seriesAnswerRows = seriesId
+              ? fallbackAnswerRows.filter(
+                  (row) =>
+                    normalizeDataverseId(row._sfsures_reservationseries_value) ===
+                    normalizedSeriesId
+                )
+              : []
+          } catch (err) {
+            console.warn('Reservation custom field answer fallback could not be loaded:', err)
+          }
         }
 
         const occurrenceAnswers = occurrenceAnswerRows
           .map((row) => ({
             id: row.sfsures_reservationattributevalueid,
             definitionId: row._sfsures_attributedefinition_value ?? '',
-            label: row.sfsures_attributedefinitionname ?? 'Custom Field',
+            label: definitionLabel(
+              definitionLabelsById,
+              row._sfsures_attributedefinition_value,
+              'Custom Field'
+            ),
             value: typedValueText(row).trim(),
           }))
           .filter((item) => item.value)
 
         const usedDefinitionIds = new Set(
-          occurrenceAnswers.map((answer) => answer.definitionId).filter(Boolean)
+          occurrenceAnswers
+            .map((answer) => normalizeDataverseId(answer.definitionId))
+            .filter(Boolean)
         )
         const seriesAnswers = seriesAnswerRows
           .map((row) => ({
             id: row.sfsures_reservationattributevalueid,
             definitionId: row._sfsures_attributedefinition_value ?? '',
-            label: row.sfsures_attributedefinitionname ?? 'Custom Field',
+            label: definitionLabel(
+              definitionLabelsById,
+              row._sfsures_attributedefinition_value,
+              'Custom Field'
+            ),
             value: typedValueText(row).trim(),
           }))
-          .filter((item) => item.value && !usedDefinitionIds.has(item.definitionId))
+          .filter(
+            (item) => item.value && !usedDefinitionIds.has(normalizeDataverseId(item.definitionId))
+          )
 
         const customFields = [...occurrenceAnswers, ...seriesAnswers]
           .map(({ id, label, value }) => ({ id, label, value }))
