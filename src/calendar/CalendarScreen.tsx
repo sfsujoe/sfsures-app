@@ -88,11 +88,13 @@ interface BlackoutRow {
   sfsures_end?: string
   sfsures_reason?: string
   _sfsures_resource_value?: string
+  '_sfsures_resource_value@OData.Community.Display.V1.FormattedValue'?: string
   'sfsures_Resource@OData.Community.Display.V1.FormattedValue'?: string
 }
 
 interface ResourceRow {
   sfsures_resourceid?: string
+  sfsures_name?: string
   sfsures_calendarcolor?: Sfsures_resourcessfsures_calendarcolor
   _sfsures_resourcetype_value?: string
 }
@@ -154,6 +156,24 @@ function toIso(val: string | undefined | null): string {
   return val
 }
 
+function formatBlackoutUntil(value: string | undefined | null): string {
+  if (!value) return 'end time unavailable'
+  const date = new Date(value)
+  if (isNaN(date.getTime())) return value
+
+  return date.toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+}
+
+function blackoutDisplayTitle(title: unknown): string {
+  return String(title).replace(/^🚫\s*/, '')
+}
+
 /**
  * Default slot for the keyboard "New reservation" path: next top of the hour,
  * one hour long. The user adjusts start/end/resource in the modal.
@@ -196,13 +216,20 @@ function occurrenceToEvent(
   }
 }
 
-function blackoutToEvent(row: BlackoutRow, accentColor: string): EventInput {
+function blackoutToEvent(
+  row: BlackoutRow,
+  accentColor: string,
+  resourceNamesById: Map<string, string>
+): EventInput {
   const resourceName =
-    row['sfsures_Resource@OData.Community.Display.V1.FormattedValue'] ?? 'Maintenance'
+    row['_sfsures_resource_value@OData.Community.Display.V1.FormattedValue'] ??
+    row['sfsures_Resource@OData.Community.Display.V1.FormattedValue'] ??
+    resourceNamesById.get(normalizeDataverseId(row._sfsures_resource_value)) ??
+    'Resource'
 
   return {
     id: `blackout-${row.sfsures_blackoutwindowid ?? ''}`,
-    title: `🚫 ${resourceName}`,
+    title: `🚫Blackout: ${resourceName} Until ${formatBlackoutUntil(row.sfsures_end)}`,
     start: toIso(row.sfsures_start),
     end: toIso(row.sfsures_end),
     display: 'background',
@@ -822,6 +849,7 @@ export function CalendarScreen({ onOpenAdmin }: CalendarScreenProps) {
           Sfsures_resourcesService.getAll({
             select: [
               'sfsures_resourceid',
+              'sfsures_name',
               'sfsures_calendarcolor',
               '_sfsures_resourcetype_value',
             ],
@@ -886,7 +914,8 @@ export function CalendarScreen({ onOpenAdmin }: CalendarScreenProps) {
               '_sfsures_resource_value',
             ],
             filter:
-              `sfsures_start lt ${endIso}` +
+              `statecode eq 0` +
+              ` and sfsures_start lt ${endIso}` +
               ` and sfsures_end gt ${startIso}` +
               ` and ${resourceFilter}`,
             orderBy: ['sfsures_start asc'],
@@ -896,6 +925,7 @@ export function CalendarScreen({ onOpenAdmin }: CalendarScreenProps) {
 
         const fallbackResourceColor = resourceColorForBackground(theme.primaryColor)
         const resourceColorsById = new Map<string, ResourceColorOption>()
+        const resourceNamesById = new Map<string, string>()
 
         for (const row of permittedResources) {
           const resourceId = row.sfsures_resourceid
@@ -904,6 +934,9 @@ export function CalendarScreen({ onOpenAdmin }: CalendarScreenProps) {
           if (resourceId && resourceColor) {
             resourceColorsById.set(resourceId, resourceColor)
           }
+          if (resourceId && row.sfsures_name) {
+            resourceNamesById.set(normalizeDataverseId(resourceId), row.sfsures_name)
+          }
         }
 
         const occEvents = (occResult.data ?? []).map((row) =>
@@ -911,7 +944,7 @@ export function CalendarScreen({ onOpenAdmin }: CalendarScreenProps) {
         )
 
         const blackoutEvents = (blackoutResult.data ?? []).map((row) =>
-          blackoutToEvent(row as BlackoutRow, theme.accentColor)
+          blackoutToEvent(row as BlackoutRow, theme.accentColor, resourceNamesById)
         )
 
         setEvents([...occEvents, ...blackoutEvents])
@@ -1518,9 +1551,9 @@ export function CalendarScreen({ onOpenAdmin }: CalendarScreenProps) {
 
             {selectedEvent.extendedProps?.type === 'blackout' ? (
               <>
-                <p className={styles.popoverLabel}>Maintenance / Blackout window</p>
+                <p className={styles.popoverLabel}>Blackout window</p>
                 <h2 id="event-popover-title" className={styles.popoverTitle}>
-                  {String(selectedEvent.title).replace('🚫 ', '')}
+                  {blackoutDisplayTitle(selectedEvent.title)}
                 </h2>
                 <p className={styles.popoverDetail}>
                   <strong>Reason:</strong>{' '}

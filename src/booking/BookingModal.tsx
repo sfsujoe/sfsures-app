@@ -1146,7 +1146,8 @@ export function BookingModal({ start, end, initialReservation, initialSeries, on
             'sfsures_reason',
           ],
           filter:
-            `_sfsures_resource_value eq ${selectedResourceId}` +
+            `statecode eq 0` +
+            ` and _sfsures_resource_value eq ${selectedResourceId}` +
             ` and sfsures_start lt ${endIso}` +
             ` and sfsures_end gt ${startIso}`,
           orderBy: ['sfsures_start asc'],
@@ -2024,7 +2025,7 @@ export function BookingModal({ start, end, initialReservation, initialSeries, on
                     {conflicts.slice(0, 3).map((c, i) => (
                       <li key={i}>
                         {c.type === 'blackout'
-                          ? `${formatConflictPrefix(c)}Maintenance: ${formatRange(c.start, c.end)}${c.reason ? ` - ${c.reason}` : ''}`
+                          ? `${formatConflictPrefix(c)}Blackout: ${formatRange(c.start, c.end)}${c.reason ? ` - ${c.reason}` : ''}`
                           : `${formatConflictPrefix(c)}Reservation: ${formatRange(c.start, c.end)}${c.ownerName ? ` (${c.ownerName})` : ''}`}
                       </li>
                     ))}

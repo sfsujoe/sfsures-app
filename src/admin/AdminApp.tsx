@@ -7,6 +7,7 @@ import styles from './AdminApp.module.css'
 const UsersScreen = lazy(() => import('./UsersScreen'))
 const GroupsScreen = lazy(() => import('./GroupsScreen'))
 const ResourcesScreen = lazy(() => import('./ResourcesScreen'))
+const BlackoutsScreen = lazy(() => import('./BlackoutsScreen'))
 
 interface AdminAppProps {
   onBack: () => void
@@ -17,7 +18,7 @@ const NAV_ITEMS = [
   { id: 'resources', label: 'Resources', disabled: false },
   { id: 'users', label: 'Users', disabled: false },
   { id: 'groups', label: 'Groups', disabled: false },
-  { id: 'blackouts', label: 'Blackouts', disabled: true },
+  { id: 'blackouts', label: 'Blackouts', disabled: false },
   { id: 'reports', label: 'Reports', disabled: true },
 ] as const
 
@@ -136,6 +137,19 @@ export default function AdminApp({ onBack }: AdminAppProps) {
             }
           >
             <GroupsScreen />
+          </Suspense>
+        )}
+        {activeSection === 'blackouts' && (
+          <Suspense
+            fallback={
+              <section className={styles.settingsPanel} aria-busy="true">
+                <div className={styles.inlineLoading} role="status">
+                  Loading blackouts...
+                </div>
+              </section>
+            }
+          >
+            <BlackoutsScreen />
           </Suspense>
         )}
       </main>
