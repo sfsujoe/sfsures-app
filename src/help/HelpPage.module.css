@@ -1,0 +1,243 @@
+.helpShell {
+  min-height: 100dvh;
+  display: grid;
+  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+  background: var(--sfsures-bg, #ffffff);
+  color: #1a1a1a;
+  font-family: var(--sfsures-font, 'Source Sans 3', system-ui, -apple-system, 'Segoe UI', sans-serif);
+}
+
+.skipLink {
+  position: fixed;
+  top: 0.75rem;
+  left: 0.75rem;
+  z-index: 100;
+  transform: translateY(-160%);
+  border-radius: 6px;
+  background: #ffffff;
+  color: var(--help-primary, #442C8B);
+  padding: 0.5rem 0.75rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.skipLink:focus {
+  transform: translateY(0);
+}
+
+.sidebar {
+  position: sticky;
+  top: 0;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+  border-right: 1px solid #dedede;
+  background: #fafafa;
+  padding: 1rem;
+  overflow: hidden;
+}
+
+.sidebarHeader {
+  border-bottom: 1px solid #e4e4e4;
+  padding-bottom: 0.875rem;
+}
+
+.eyebrow,
+.topicKicker {
+  margin: 0 0 0.25rem;
+  color: var(--help-primary, #442C8B);
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sidebarHeader h1 {
+  margin: 0;
+  color: #1a1a1a;
+  font-size: 1rem;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.searchLabel {
+  color: #333333;
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+
+.searchInput {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid #cfcfcf;
+  border-radius: var(--help-radius, 6px);
+  background: #ffffff;
+  color: #1a1a1a;
+  padding: 0.45rem 0.625rem;
+  font: inherit;
+  font-size: 0.875rem;
+}
+
+.topicNav {
+  display: grid;
+  gap: 0.25rem;
+  overflow: auto;
+  padding-right: 0.25rem;
+}
+
+.topicButton {
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid transparent;
+  border-radius: var(--help-radius, 6px);
+  background: transparent;
+  color: #333333;
+  padding: 0.45rem 0.625rem;
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+
+.topicButton:hover {
+  background: #eeeeee;
+}
+
+.topicButtonActive {
+  border-color: color-mix(in srgb, var(--help-primary, #442C8B) 34%, #ffffff);
+  background: color-mix(in srgb, var(--help-primary, #442C8B) 9%, #ffffff);
+  color: var(--help-primary, #442C8B);
+}
+
+.emptySearch {
+  margin: 0.5rem 0;
+  color: #666666;
+  font-size: 0.875rem;
+}
+
+.content {
+  min-width: 0;
+  padding: 1.25rem clamp(1rem, 4vw, 3rem) 3rem;
+  overflow: auto;
+}
+
+.hero {
+  max-width: 920px;
+  border-bottom: 4px solid var(--help-date-header, #FFEC82);
+  padding: 1.25rem 0 1rem;
+}
+
+.hero h2 {
+  margin: 0;
+  color: #1a1a1a;
+  font-size: clamp(1.65rem, 3vw, 2.35rem);
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.hero p {
+  max-width: 760px;
+  margin: 0.75rem 0 0;
+  color: #444444;
+  font-size: 1rem;
+  line-height: 1.55;
+}
+
+.topicStack {
+  display: grid;
+  gap: 1rem;
+  max-width: 920px;
+  margin-top: 1rem;
+}
+
+.topicSection {
+  scroll-margin-top: 1rem;
+  border: 1px solid #e2e2e2;
+  border-radius: var(--help-radius, 6px);
+  background: #ffffff;
+  padding: clamp(1rem, 2.2vw, 1.5rem);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.topicSection h3 {
+  margin: 0;
+  color: #1a1a1a;
+  font-size: 1.25rem;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.topicSummary {
+  margin: 0.5rem 0 0;
+  color: #444444;
+  line-height: 1.5;
+}
+
+.stepList {
+  margin: 0.875rem 0 0;
+  padding-left: 1.35rem;
+}
+
+.stepList li {
+  margin: 0.35rem 0;
+  color: #242424;
+  line-height: 1.45;
+}
+
+.noteBlock {
+  margin-top: 1rem;
+  border-left: 4px solid var(--help-accent, #DCAE27);
+  border-radius: 0 var(--help-radius, 6px) var(--help-radius, 6px) 0;
+  background: #fffaf0;
+  padding: 0.75rem 0.875rem;
+}
+
+.noteBlock p {
+  margin: 0 0 0.35rem;
+  color: #1a1a1a;
+  font-size: 0.8125rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.noteBlock ul {
+  margin: 0;
+  padding-left: 1.15rem;
+}
+
+.noteBlock li {
+  margin: 0.25rem 0;
+  color: #333333;
+  line-height: 1.4;
+}
+
+.helpShell :is(a, button, input):focus-visible {
+  outline: 2px solid var(--help-primary, #442C8B);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--help-accent, #DCAE27) 48%, transparent);
+}
+
+@media (max-width: 760px) {
+  .helpShell {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    position: static;
+    height: auto;
+    max-height: 58dvh;
+    border-right: 0;
+    border-bottom: 1px solid #dedede;
+  }
+
+  .content {
+    padding: 1rem;
+  }
+
+  .hero {
+    padding-top: 0.5rem;
+  }
+}

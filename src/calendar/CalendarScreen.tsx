@@ -383,6 +383,7 @@ export function CalendarScreen({ onOpenAdmin }: CalendarScreenProps) {
   const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null)
   const [profilePhotoUnavailable, setProfilePhotoUnavailable] = useState(false)
   const [ownerLookupResult, setOwnerLookupResult] = useState<OwnerLookupResult | null>(null)
+  const [helpMenuOpen, setHelpMenuOpen] = useState(false)
   const [reservationInfoDetails, setReservationInfoDetails] = useState<ReservationInfoDetails>({
     status: 'idle',
     resourceAttributes: [],
@@ -395,6 +396,7 @@ export function CalendarScreen({ onOpenAdmin }: CalendarScreenProps) {
   // Focus trap for the event-detail popover (active only while it is open).
   const popoverRef = useRef<HTMLDivElement>(null)
   useFocusTrap(popoverRef, !!selectedEvent)
+  const helpMenuRef = useRef<HTMLDivElement>(null)
 
   // Track the loaded date range so we don't re-fetch unnecessarily.
   const loadedRangeRef = useRef<{ start: Date; end: Date } | null>(null)
@@ -441,6 +443,13 @@ export function CalendarScreen({ onOpenAdmin }: CalendarScreenProps) {
       current.includes(activeLogoUrl) ? current : [...current, activeLogoUrl]
     )
   }, [activeLogoUrl])
+
+  const openHelpPage = useCallback(() => {
+    const helpUrl = new URL(window.location.href)
+    helpUrl.hash = '/help'
+    window.open(helpUrl.toString(), '_blank', 'noopener,noreferrer')
+    setHelpMenuOpen(false)
+  }, [])
 
   useEffect(() => {
     const photoLookupId = currentUser?.userPrincipalName || currentUser?.email
@@ -573,6 +582,30 @@ export function CalendarScreen({ onOpenAdmin }: CalendarScreenProps) {
       cancelled = true
     }
   }, [cachedSelectedOwner, selectedOwnerId])
+
+  useEffect(() => {
+    if (!helpMenuOpen) return
+
+    function handlePointerDown(event: PointerEvent) {
+      if (!helpMenuRef.current?.contains(event.target as Node)) {
+        setHelpMenuOpen(false)
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setHelpMenuOpen(false)
+      }
+    }
+
+    document.addEventListener('pointerdown', handlePointerDown)
+    document.addEventListener('keydown', handleKeyDown)
+
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [helpMenuOpen])
 
   useEffect(() => {
     if (!selectedEvent || selectedEvent.extendedProps?.type !== 'occurrence') {
@@ -1324,6 +1357,38 @@ export function CalendarScreen({ onOpenAdmin }: CalendarScreenProps) {
           </a>
           <h1 className={styles.headerTitle}>SFSU Resource Reservations</h1>
           <div className={styles.profileSlot}>
+            <div className={styles.helpMenuWrap} ref={helpMenuRef}>
+              <button
+                type="button"
+                className={styles.helpButton}
+                aria-label="Open help menu"
+                aria-haspopup="menu"
+                aria-expanded={helpMenuOpen}
+                onClick={() => setHelpMenuOpen((open) => !open)}
+              >
+                <span className={styles.helpIcon} aria-hidden="true">?</span>
+              </button>
+              {helpMenuOpen && (
+                <div className={styles.helpMenu} role="menu" aria-label="Help menu">
+                  <button
+                    type="button"
+                    className={styles.helpMenuItem}
+                    role="menuitem"
+                    onClick={openHelpPage}
+                  >
+                    Help (New tab)
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.helpMenuItem}
+                    role="menuitem"
+                    onClick={() => setHelpMenuOpen(false)}
+                  >
+                    About
+                  </button>
+                </div>
+              )}
+            </div>
             {onOpenAdmin && (
               <button
                 type="button"
@@ -1333,27 +1398,35 @@ export function CalendarScreen({ onOpenAdmin }: CalendarScreenProps) {
                 Admin
               </button>
             )}
-            {profilePhotoUrl && !profilePhotoUnavailable ? (
-              <img
-                src={profilePhotoUrl}
-                alt={`${currentUser?.displayName || 'Signed-in user'} profile photo`}
-                className={styles.profilePhoto}
-                onError={() => {
-                  console.warn('Tenant profile photo response could not be rendered.')
-                  setProfilePhotoUrl(null)
-                  setProfilePhotoUnavailable(true)
-                }}
-              />
-            ) : (
-              <div
-                className={styles.profileFallback}
-                role="img"
-                aria-label={`${currentUser?.displayName || 'Signed-in user'} profile photo unavailable`}
-                title={currentUser?.displayName || currentUser?.email || 'Signed-in user'}
-              >
-                {initialsFor(currentUser?.displayName, currentUser?.email)}
-              </div>
-            )}
+            <a
+              href="https://gateway.sfsu.edu/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className={styles.profileLink}
+              aria-label="Open SFSU Gateway in a new tab"
+              title="Open SFSU Gateway"
+            >
+              {profilePhotoUrl && !profilePhotoUnavailable ? (
+                <img
+                  src={profilePhotoUrl}
+                  alt={`${currentUser?.displayName || 'Signed-in user'} profile photo`}
+                  className={styles.profilePhoto}
+                  onError={() => {
+                    console.warn('Tenant profile photo response could not be rendered.')
+                    setProfilePhotoUrl(null)
+                    setProfilePhotoUnavailable(true)
+                  }}
+                />
+              ) : (
+                <div
+                  className={styles.profileFallback}
+                  role="img"
+                  aria-label={`${currentUser?.displayName || 'Signed-in user'} profile photo unavailable`}
+                >
+                  {initialsFor(currentUser?.displayName, currentUser?.email)}
+                </div>
+              )}
+            </a>
           </div>
         </div>
       </header>

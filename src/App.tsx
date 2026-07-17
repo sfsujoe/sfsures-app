@@ -4,11 +4,12 @@
  * Layer order:
  *   ThemeProvider (loads active settings row; falls back to SFSU defaults)
  *     └─ ThemeCSSVars (applies --sfsures-* CSS custom properties to :root)
- *           └─ AccessGate (SF State ID check; blocks with modal if failed)
- *                 └─ AppRoutes (calendar first; admin is lazy-loaded)
+ *           └─ AppContent
+ *                 ├─ HelpPage for #/help routes (no user lookup needed)
+ *                 └─ AccessGate → AppRoutes for calendar/admin app content
  *
- * Every screen added later goes inside AccessGate so the access check is
- * enforced for the whole app, not just the calendar route.
+ * App content goes inside AccessGate. The standalone end-user help route stays
+ * outside it so Help can open in a fresh tab without waiting on Office365Users.
  */
 
 import { lazy, Suspense, useEffect, useState } from 'react'
@@ -20,8 +21,15 @@ import { CalendarScreen } from './calendar/CalendarScreen'
 import './App.css'
 
 const AdminApp = lazy(() => import('./admin/AdminApp'))
+const HelpPage = lazy(() => import('./help/HelpPage'))
 
 type ActiveScreen = 'calendar' | 'admin'
+
+function helpTopicFromHash(): string | null {
+  const match = window.location.hash.match(/^#\/help\/?([^/?#]*)/)
+  if (!match) return null
+  return match[1] || ''
+}
 
 // ---------------------------------------------------------------------------
 // ThemeCSSVars — writes resolved hex values to CSS custom properties on <html>
@@ -77,13 +85,44 @@ function AppRoutes() {
   )
 }
 
+function AppContent() {
+  const [helpTopicId, setHelpTopicId] = useState<string | null>(() => helpTopicFromHash())
+
+  useEffect(() => {
+    function handleHashChange() {
+      setHelpTopicId(helpTopicFromHash())
+    }
+
+    window.addEventListener('hashchange', handleHashChange)
+    return () => window.removeEventListener('hashchange', handleHashChange)
+  }, [])
+
+  if (helpTopicId !== null) {
+    return (
+      <Suspense
+        fallback={
+          <div className="routeLoading" role="status">
+            Loading help...
+          </div>
+        }
+      >
+        <HelpPage activeTopicId={helpTopicId || undefined} />
+      </Suspense>
+    )
+  }
+
+  return (
+    <AccessGate>
+      <AppRoutes />
+    </AccessGate>
+  )
+}
+
 export default function App() {
   return (
     <ThemeProvider>
       <ThemeCSSVars />
-      <AccessGate>
-        <AppRoutes />
-      </AccessGate>
+      <AppContent />
     </ThemeProvider>
   )
 }
