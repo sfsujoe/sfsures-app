@@ -6,6 +6,7 @@ import styles from './AdminApp.module.css'
 
 const UsersScreen = lazy(() => import('./UsersScreen'))
 const GroupsScreen = lazy(() => import('./GroupsScreen'))
+const ResourceTypesScreen = lazy(() => import('./ResourceTypesScreen'))
 const ResourcesScreen = lazy(() => import('./ResourcesScreen'))
 const BlackoutsScreen = lazy(() => import('./BlackoutsScreen'))
 
@@ -15,6 +16,7 @@ interface AdminAppProps {
 
 const NAV_ITEMS = [
   { id: 'settings', label: 'Settings', disabled: false },
+  { id: 'resourceTypes', label: 'Resource Types', disabled: false },
   { id: 'resources', label: 'Resources', disabled: false },
   { id: 'users', label: 'Users', disabled: false },
   { id: 'groups', label: 'Groups', disabled: false },
@@ -26,6 +28,7 @@ type AdminSection = (typeof NAV_ITEMS)[number]['id']
 
 const SECTION_TITLES: Record<AdminSection, string> = {
   settings: 'App Settings',
+  resourceTypes: 'Resource Types',
   resources: 'Resources',
   users: 'Users',
   groups: 'Groups',
@@ -111,6 +114,19 @@ export default function AdminApp({ onBack }: AdminAppProps) {
             }
           >
             <UsersScreen />
+          </Suspense>
+        )}
+        {activeSection === 'resourceTypes' && (
+          <Suspense
+            fallback={
+              <section className={styles.settingsPanel} aria-busy="true">
+                <div className={styles.inlineLoading} role="status">
+                  Loading resource types...
+                </div>
+              </section>
+            }
+          >
+            <ResourceTypesScreen />
           </Suspense>
         )}
         {activeSection === 'resources' && (

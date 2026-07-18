@@ -66,6 +66,10 @@ interface BookingModalProps {
   start: Date
   /** Pre-filled from the calendar selection */
   end: Date
+  /** Pre-selected from the calendar Resource Type filter */
+  initialResourceTypeId?: string
+  /** Pre-selected from the calendar resource viewer */
+  initialResourceId?: string
   /** Existing occurrence details when editing from Reservation Info */
   initialReservation?: EditableReservation
   /** Existing series details when editing an entire recurring series */
@@ -105,6 +109,11 @@ interface ResourceOption {
   id: string
   name: string
   resourceTypeId: string
+}
+
+interface ResourceTypeOption {
+  id: string
+  name: string
 }
 
 interface ReservationCustomField {
@@ -550,7 +559,16 @@ function formatConflictPrefix(conflict: ConflictInfo): string {
 // Component
 // ---------------------------------------------------------------------------
 
-export function BookingModal({ start, end, initialReservation, initialSeries, onClose, onBooked }: BookingModalProps) {
+export function BookingModal({
+  start,
+  end,
+  initialResourceTypeId = '',
+  initialResourceId = '',
+  initialReservation,
+  initialSeries,
+  onClose,
+  onBooked,
+}: BookingModalProps) {
   const { theme, reservationLimits } = useTheme()
   const currentUser = useCurrentUser()
 
@@ -560,6 +578,7 @@ export function BookingModal({ start, end, initialReservation, initialSeries, on
   const okButtonRef = useRef<HTMLButtonElement>(null)
 
   // ---- Resource list ----
+  const [resourceTypes, setResourceTypes] = useState<ResourceTypeOption[]>([])
   const [resources, setResources] = useState<ResourceOption[]>([])
   const [resourcesLoading, setResourcesLoading] = useState(true)
   const [owners, setOwners] = useState<ReservationOwnerOption[]>([])
@@ -570,8 +589,9 @@ export function BookingModal({ start, end, initialReservation, initialSeries, on
   const [customFieldsLoading, setCustomFieldsLoading] = useState(false)
 
   // ---- Form state ----
+  const [resourceTypeFilterId, setResourceTypeFilterId] = useState(initialResourceTypeId)
   const [selectedResourceId, setSelectedResourceId] = useState(
-    initialSeries?.resourceId ?? initialReservation?.resourceId ?? ''
+    initialSeries?.resourceId ?? initialReservation?.resourceId ?? initialResourceId
   )
   const [selectedOwnerId, setSelectedOwnerId] = useState(
     initialSeries?.bookingOwnerId ?? initialReservation?.bookingOwnerId ?? currentUser?.appUserId ?? ''
@@ -617,6 +637,13 @@ export function BookingModal({ start, end, initialReservation, initialSeries, on
     resources.find((resource) => resource.id === selectedResourceId)?.name ?? 'Selected resource'
   const selectedResourceTypeId =
     resources.find((resource) => resource.id === selectedResourceId)?.resourceTypeId ?? ''
+  const filteredResources = useMemo(
+    () =>
+      resourceTypeFilterId
+        ? resources.filter((resource) => resource.resourceTypeId === resourceTypeFilterId)
+        : resources,
+    [resourceTypeFilterId, resources]
+  )
   const customFieldSummary = useMemo(
     () =>
       customFields
@@ -647,6 +674,36 @@ export function BookingModal({ start, end, initialReservation, initialSeries, on
   const isSeriesEdit = saveMode === 'editSeries'
   const isRecurringCreate = saveMode === 'create' && recurrenceFrequency !== 'none'
   const isSeriesSave = isRecurringCreate || isSeriesEdit
+  const resourceSelectionLocked = saveMode !== 'create'
+  const handleResourceTypeFilterChange = useCallback(
+    (nextResourceTypeId: string) => {
+      setResourceTypeFilterId(nextResourceTypeId)
+      if (
+        selectedResourceId &&
+        nextResourceTypeId &&
+        selectedResourceTypeId !== nextResourceTypeId
+      ) {
+        setSelectedResourceId('')
+      }
+      setConflicts([])
+      setError('')
+    },
+    [selectedResourceId, selectedResourceTypeId]
+  )
+
+  const handleSelectedResourceChange = useCallback(
+    (nextResourceId: string) => {
+      setSelectedResourceId(nextResourceId)
+      const nextResourceTypeId =
+        resources.find((resource) => resource.id === nextResourceId)?.resourceTypeId ?? ''
+      if (nextResourceTypeId) {
+        setResourceTypeFilterId(nextResourceTypeId)
+      }
+      setConflicts([])
+      setError('')
+    },
+    [resources]
+  )
 
   useEffect(() => {
     if (mode !== 'success') return
@@ -661,8 +718,9 @@ export function BookingModal({ start, end, initialReservation, initialSeries, on
         if (!currentUser) throw new Error('User identity is not available.')
         const [resourceTypeResult, resourceResult, permittedResourceTypeIds] = await Promise.all([
           Sfsures_resourcetypesService.getAll({
-            select: ['sfsures_resourcetypeid', 'sfsures_status'],
+            select: ['sfsures_resourcetypeid', 'sfsures_name', 'sfsures_status'],
             filter: `sfsures_status eq ${RESOURCE_TYPE_STATUS_ACTIVE}`,
+            orderBy: ['sfsures_name asc'],
             top: 500,
           }),
           Sfsures_resourcesService.getAll({
@@ -692,6 +750,20 @@ export function BookingModal({ start, end, initialReservation, initialSeries, on
                 (currentUser.isAppAdmin || permittedResourceTypeIds.has(id))
             )
         )
+        const loadedResourceTypes = ((resourceTypeResult.data ?? []) as Sfsures_resourcetypes[])
+          .map((resourceType) => ({
+            id: resourceType.sfsures_resourcetypeid,
+            name: resourceType.sfsures_name,
+          }))
+          .filter(
+            (resourceType): resourceType is ResourceTypeOption =>
+              typeof resourceType.id === 'string' &&
+              resourceType.id.length > 0 &&
+              typeof resourceType.name === 'string' &&
+              resourceType.name.length > 0 &&
+              activeResourceTypeIds.has(resourceType.id)
+          )
+          .sort((a, b) => a.name.localeCompare(b.name))
 
         const opts: ResourceOption[] = ((resourceResult.data ?? []) as Sfsures_resources[])
           .filter((resource) => activeResourceTypeIds.has(resource._sfsures_resourcetype_value ?? ''))
@@ -701,11 +773,29 @@ export function BookingModal({ start, end, initialReservation, initialSeries, on
             resourceTypeId: resource._sfsures_resourcetype_value ?? '',
           }))
 
+        setResourceTypes(loadedResourceTypes)
         setResources(opts)
+        setResourceTypeFilterId((current) => {
+          const existingResource = opts.find(
+            (resource) =>
+              resource.id ===
+              (initialSeries?.resourceId ?? initialReservation?.resourceId ?? initialResourceId)
+          )
+          if (existingResource) return existingResource.resourceTypeId
+          if (current && loadedResourceTypes.some((resourceType) => resourceType.id === current)) {
+            return current
+          }
+          return ''
+        })
 
         // Auto-select the first resource if only one exists (common in early demo data).
-        if (opts.length === 1 && !initialReservation?.resourceId && !initialSeries?.resourceId) {
-          setSelectedResourceId(opts[0].id)
+        if (!initialResourceId && !initialReservation?.resourceId && !initialSeries?.resourceId) {
+          const initialFilteredResources = initialResourceTypeId
+            ? opts.filter((resource) => resource.resourceTypeId === initialResourceTypeId)
+            : opts
+          if (initialFilteredResources.length === 1) {
+            setSelectedResourceId(initialFilteredResources[0].id)
+          }
         }
       } catch (err) {
         console.error('Failed to load resources:', err)
@@ -716,7 +806,13 @@ export function BookingModal({ start, end, initialReservation, initialSeries, on
     }
 
     load()
-  }, [currentUser, initialReservation?.resourceId, initialSeries?.resourceId])
+  }, [
+    currentUser,
+    initialReservation?.resourceId,
+    initialResourceId,
+    initialResourceTypeId,
+    initialSeries?.resourceId,
+  ])
 
   useEffect(() => {
     let cancelled = false
@@ -1654,6 +1750,37 @@ export function BookingModal({ start, end, initialReservation, initialSeries, on
           </div>
         ) : (
           <div className={styles.body}>
+            <div className={styles.field}>
+              <label className={styles.label} htmlFor="booking-resource-type">
+                Resource Type
+              </label>
+              {resourcesLoading ? (
+                <p className={styles.resourcesLoading}>
+                  <span className={styles.spinner} style={{ borderTopColor: theme.primaryColor }} />
+                  Loading resource types…
+                </p>
+              ) : resourceTypes.length === 0 ? (
+                <p className={styles.resourcesLoading}>
+                  No reservable Resource Types found. Contact your administrator.
+                </p>
+              ) : (
+                <select
+                  id="booking-resource-type"
+                  className={styles.select}
+                  value={resourceTypeFilterId}
+                  disabled={resourceSelectionLocked}
+                  onChange={(event) => handleResourceTypeFilterChange(event.target.value)}
+                >
+                  <option value="">All Resource Types</option>
+                  {resourceTypes.map((resourceType) => (
+                    <option key={resourceType.id} value={resourceType.id}>
+                      {resourceType.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+
             {/* Resource picker */}
             <div className={styles.field}>
               <label className={styles.label} htmlFor="booking-resource">
@@ -1668,16 +1795,17 @@ export function BookingModal({ start, end, initialReservation, initialSeries, on
                 <p className={styles.resourcesLoading}>
                   No reservable resources found. Contact your administrator.
                 </p>
+              ) : filteredResources.length === 0 ? (
+                <p className={styles.resourcesLoading}>
+                  No reservable resources found for this Resource Type.
+                </p>
               ) : (
                 <select
                   id="booking-resource"
                   className={styles.select}
                   value={selectedResourceId}
-                  onChange={(e) => {
-                    setSelectedResourceId(e.target.value)
-                    setConflicts([])
-                    setError('')
-                  }}
+                  disabled={resourceSelectionLocked}
+                  onChange={(e) => handleSelectedResourceChange(e.target.value)}
                 >
                   {selectedResourceId && !selectedResourceIsReservable && (
                     <option value={selectedResourceId} disabled>
@@ -1685,7 +1813,7 @@ export function BookingModal({ start, end, initialReservation, initialSeries, on
                     </option>
                   )}
                   <option value="">Select a resource…</option>
-                  {resources.map((r) => (
+                  {filteredResources.map((r) => (
                     <option key={r.id} value={r.id}>
                       {r.name}
                     </option>

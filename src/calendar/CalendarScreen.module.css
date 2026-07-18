@@ -38,7 +38,8 @@
   display: inline-flex;
   align-items: center;
   height: var(--header-logo-height);
-  width: min(320px, 36vw, 100%);
+  width: fit-content;
+  max-width: min(320px, 36vw, 100%);
   border-radius: 4px;
 }
 
@@ -51,7 +52,8 @@
 .logo {
   display: block;
   height: 100%;
-  width: 100%;
+  width: auto;
+  max-width: 100%;
   object-fit: contain;
   object-position: left center;
 }
@@ -226,6 +228,42 @@
   position: relative;
   padding: 1rem 1.5rem;
   gap: 0.75rem;
+}
+
+.calendarFilterBar {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 36px;
+}
+
+.resourceTypeFilter {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #333333;
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+
+.resourceTypeFilter select {
+  min-width: min(280px, 62vw);
+  min-height: 34px;
+  border: 1px solid #d0d0d0;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #222222;
+  padding: 0.35rem 2rem 0.35rem 0.625rem;
+  font: inherit;
+  font-weight: 600;
+}
+
+.resourceTypeFilter select:focus-visible {
+  outline: 2px solid var(--sfsures-primary, #442C8B);
+  outline-offset: 2px;
 }
 
 .calendarWrap {
@@ -622,6 +660,7 @@
   flex-wrap: wrap;
 }
 
+.primaryAction,
 .secondaryAction,
 .dangerGhostAction,
 .dangerAction {
@@ -633,6 +672,16 @@
   font-weight: 700;
   cursor: pointer;
   transition: background 0.12s, border-color 0.12s, color 0.12s, opacity 0.12s;
+}
+
+.primaryAction {
+  border: 1px solid var(--sfsures-primary, #442C8B);
+  background: var(--sfsures-primary, #442C8B);
+  color: #ffffff;
+}
+
+.primaryAction:hover:not(:disabled) {
+  filter: brightness(0.94);
 }
 
 .secondaryAction {
@@ -667,6 +716,7 @@
   border-color: #991b1b;
 }
 
+.primaryAction:disabled,
 .secondaryAction:disabled,
 .dangerGhostAction:disabled,
 .dangerAction:disabled {
@@ -708,11 +758,127 @@
   line-height: 1.4;
 }
 
+.resourceInfoModal {
+  max-width: 520px;
+}
+
+.resourceInfoBody {
+  display: grid;
+  gap: 1rem;
+}
+
+.resourceInfoPhotoButton {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: zoom-in;
+}
+
+.resourceInfoPhotoButton:focus-visible {
+  outline: 2px solid var(--sfsures-primary, #442C8B);
+  outline-offset: 3px;
+}
+
+.resourceInfoPhoto,
+.resourceInfoPhotoPlaceholder {
+  width: 100%;
+  max-height: 240px;
+  border: 1px solid #dedede;
+  border-radius: 8px;
+  background: #f5f5f5;
+}
+
+.resourceInfoPhoto {
+  display: block;
+  object-fit: contain;
+}
+
+.resourceInfoPhotoPlaceholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 132px;
+  color: #666666;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.resourceInfoList {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.625rem 0.875rem;
+  margin: 0;
+}
+
+.resourceInfoList dt {
+  color: #666666;
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.resourceInfoList dd {
+  margin: 0.125rem 0 0;
+  color: #222222;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.resourcePhotoPreviewModal {
+  max-width: min(900px, calc(100vw - 2rem));
+}
+
+.resourcePhotoPreviewBody {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  max-height: min(68dvh, 720px);
+  overflow: auto;
+  border: 1px solid #dedede;
+  border-radius: 8px;
+  background: #f5f5f5;
+}
+
+.resourcePhotoPreviewBody img {
+  display: block;
+  max-width: 100%;
+  max-height: min(68dvh, 720px);
+  object-fit: contain;
+}
+
+.modalStatusRow {
+  margin: 0 0 0.75rem;
+  color: #666666;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
 /* ---- Responsive ---- */
 
 @media (max-width: 640px) {
   .main {
     padding: 0.75rem;
+  }
+
+  .calendarFilterBar {
+    justify-content: stretch;
+    align-items: stretch;
+  }
+
+  .resourceTypeFilter {
+    width: 100%;
+    align-items: stretch;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .resourceTypeFilter select {
+    width: 100%;
+    min-width: 0;
   }
 
   .headerInner {
@@ -722,7 +888,7 @@
   }
 
   .logoLink {
-    width: min(104px, 28vw, 100%);
+    max-width: min(104px, 28vw, 100%);
   }
 
   .headerTitle {
@@ -762,6 +928,10 @@
   }
 
   .detailValueList {
+    grid-template-columns: 1fr;
+  }
+
+  .resourceInfoList {
     grid-template-columns: 1fr;
   }
 

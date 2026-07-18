@@ -30,7 +30,14 @@
  *   npm install @fullcalendar/react @fullcalendar/daygrid @fullcalendar/timegrid @fullcalendar/interaction
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from 'react'
 import FullCalendar from '@fullcalendar/react'
 import dayGridPlugin from '@fullcalendar/daygrid'
 import timeGridPlugin from '@fullcalendar/timegrid'
@@ -95,8 +102,26 @@ interface BlackoutRow {
 interface ResourceRow {
   sfsures_resourceid?: string
   sfsures_name?: string
+  sfsures_description?: string
+  sfsures_location?: string
   sfsures_calendarcolor?: Sfsures_resourcessfsures_calendarcolor
+  sfsures_resourcephoto?: string
   _sfsures_resourcetype_value?: string
+}
+
+interface ResourceTypeOption {
+  id: string
+  name: string
+}
+
+interface CalendarResourceOption {
+  id: string
+  name: string
+  resourceTypeId: string
+  resourceTypeName: string
+  location: string
+  description: string
+  photoThumbnailUrl: string | null
 }
 
 interface ReservationOwnerDetails {
@@ -118,6 +143,11 @@ interface ReservationInfoDetails {
   customFields: DetailValue[]
 }
 
+interface ResourceInfoDetails {
+  status: 'idle' | 'loading' | 'ready' | 'error'
+  resourceAttributes: DetailValue[]
+}
+
 interface OwnerLookupResult {
   appUserId: string
   status: 'ready' | 'unavailable'
@@ -129,6 +159,8 @@ type DeleteConfirmMode = 'occurrence' | 'series'
 
 const RECORD_STATUS_ACTIVE = 997330000
 const RECORD_STATUS_CANCELLED = 997330001
+const ATTRIBUTE_APPLIES_TO_RESOURCE = 997330000
+const RESOURCE_PHOTO_COLUMN = 'sfsures_resourcephoto'
 
 const RESERVATION_ATTRIBUTE_VALUE_SELECT = [
   'sfsures_reservationattributevalueid',
@@ -190,6 +222,7 @@ function nextHourSlot(): { start: Date; end: Date } {
 function occurrenceToEvent(
   row: OccurrenceRow,
   resourceColorsById: Map<string, ResourceColorOption>,
+  resourceTypesByResourceId: Map<string, string>,
   fallbackColor: ResourceColorOption
 ): EventInput {
   const resourceName =
@@ -208,6 +241,7 @@ function occurrenceToEvent(
     extendedProps: {
       ownerId: row._sfsures_bookingowner_value ?? '',
       resourceId: row._sfsures_resource_value ?? '',
+      resourceTypeId: resourceTypesByResourceId.get(row._sfsures_resource_value ?? '') ?? '',
       seriesId: row._sfsures_series_value ?? '',
       comments: row.sfsures_comments?.trim() ?? '',
       type: 'occurrence' as const,
@@ -219,7 +253,8 @@ function occurrenceToEvent(
 function blackoutToEvent(
   row: BlackoutRow,
   accentColor: string,
-  resourceNamesById: Map<string, string>
+  resourceNamesById: Map<string, string>,
+  resourceTypesByResourceId: Map<string, string>
 ): EventInput {
   const resourceName =
     row['_sfsures_resource_value@OData.Community.Display.V1.FormattedValue'] ??
@@ -236,6 +271,8 @@ function blackoutToEvent(
     backgroundColor: `${accentColor}40`,
     extendedProps: {
       owner: null,
+      resourceId: row._sfsures_resource_value ?? '',
+      resourceTypeId: resourceTypesByResourceId.get(row._sfsures_resource_value ?? '') ?? '',
       type: 'blackout' as const,
       reason: row.sfsures_reason ?? '',
     },
@@ -262,6 +299,65 @@ function normalizeProfilePhotoSrc(photo: string | undefined | null, contentType?
   }
 
   return `data:${contentType || 'image/jpeg'};base64,${trimmed}`
+}
+
+function resourcePhotoThumbnailSrc(value: string | undefined | null): string | null {
+  const base64 = value?.trim()
+  if (!base64) return null
+
+  if (base64.startsWith('data:')) {
+    return base64
+  }
+
+  return `data:image/jpeg;base64,${base64}`
+}
+
+function readImageAsDataUrl(image: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result)
+        return
+      }
+
+      reject(new Error('The selected image could not be prepared.'))
+    }
+    reader.onerror = () => reject(new Error('The selected image could not be read.'))
+    reader.onabort = () => reject(new Error('Reading the selected image was canceled.'))
+    reader.readAsDataURL(image)
+  })
+}
+
+function resourcePhotoMimeType(bytes: Uint8Array): string {
+  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg'
+  if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) {
+    return 'image/png'
+  }
+  if (bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) return 'image/gif'
+  if (bytes[0] === 0x42 && bytes[1] === 0x4d) return 'image/bmp'
+  if (
+    bytes[0] === 0x52 &&
+    bytes[1] === 0x49 &&
+    bytes[2] === 0x46 &&
+    bytes[3] === 0x46 &&
+    bytes[8] === 0x57 &&
+    bytes[9] === 0x45 &&
+    bytes[10] === 0x42 &&
+    bytes[11] === 0x50
+  ) {
+    return 'image/webp'
+  }
+
+  return 'image/jpeg'
+}
+
+function resourcePhotoBytesAsDataUrl(bytes: Uint8Array): Promise<string> {
+  const copiedBytes = Uint8Array.from(bytes)
+  return readImageAsDataUrl(
+    new Blob([copiedBytes.buffer], { type: resourcePhotoMimeType(copiedBytes) })
+  )
 }
 
 async function loadTenantProfilePhotoSrc(userId: string): Promise<string | null> {
@@ -393,6 +489,19 @@ export function CalendarScreen({ onOpenAdmin }: CalendarScreenProps) {
   const calendarRef = useRef<FullCalendar>(null)
 
   const [events, setEvents] = useState<EventInput[]>([])
+  const [resourceTypeOptions, setResourceTypeOptions] = useState<ResourceTypeOption[]>([])
+  const [viewResources, setViewResources] = useState<CalendarResourceOption[]>([])
+  const [selectedResourceTypeId, setSelectedResourceTypeId] = useState('')
+  const [viewResourceId, setViewResourceId] = useState('')
+  const [selectedViewResource, setSelectedViewResource] = useState<CalendarResourceOption | null>(null)
+  const [bookingResourceContext, setBookingResourceContext] =
+    useState<CalendarResourceOption | null>(null)
+  const [resourcePhotoPreviewResource, setResourcePhotoPreviewResource] =
+    useState<CalendarResourceOption | null>(null)
+  const [resourcePhotoPreviewFullSrc, setResourcePhotoPreviewFullSrc] = useState<string | null>(null)
+  const [resourcePhotoPreviewStatus, setResourcePhotoPreviewStatus] = useState<
+    'loading' | 'full' | 'thumbnail'
+  >('loading')
   const [loadStatus, setLoadStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [errorMessage, setErrorMessage] = useState('')
   const [selectedEvent, setSelectedEvent] = useState<EventInput | null>(null)
@@ -416,6 +525,10 @@ export function CalendarScreen({ onOpenAdmin }: CalendarScreenProps) {
     resourceAttributes: [],
     customFields: [],
   })
+  const [resourceInfoDetails, setResourceInfoDetails] = useState<ResourceInfoDetails>({
+    status: 'idle',
+    resourceAttributes: [],
+  })
 
   // Reservation modal state — non-null when the modal is open.
   const [bookingSlot, setBookingSlot] = useState<{ start: Date; end: Date } | null>(null)
@@ -423,6 +536,11 @@ export function CalendarScreen({ onOpenAdmin }: CalendarScreenProps) {
   // Focus trap for the event-detail popover (active only while it is open).
   const popoverRef = useRef<HTMLDivElement>(null)
   useFocusTrap(popoverRef, !!selectedEvent)
+  const resourcePopoverRef = useRef<HTMLDivElement>(null)
+  useFocusTrap(resourcePopoverRef, !!selectedViewResource && !resourcePhotoPreviewResource)
+  const resourcePhotoPreviewRef = useRef<HTMLDivElement>(null)
+  const resourcePhotoPreviewRequestIdRef = useRef(0)
+  useFocusTrap(resourcePhotoPreviewRef, !!resourcePhotoPreviewResource)
   const helpMenuRef = useRef<HTMLDivElement>(null)
 
   // Track the loaded date range so we don't re-fetch unnecessarily.
@@ -454,6 +572,20 @@ export function CalendarScreen({ onOpenAdmin }: CalendarScreenProps) {
         : ownerResultMatches
           ? ownerLookupResult.status
           : 'loading'
+  const visibleEvents = useMemo(
+    () =>
+      selectedResourceTypeId
+        ? events.filter((event) => event.extendedProps?.resourceTypeId === selectedResourceTypeId)
+        : events,
+    [events, selectedResourceTypeId]
+  )
+  const filteredViewResources = useMemo(
+    () =>
+      selectedResourceTypeId
+        ? viewResources.filter((resource) => resource.resourceTypeId === selectedResourceTypeId)
+        : viewResources,
+    [selectedResourceTypeId, viewResources]
+  )
 
   // ---------------------------------------------------------------------------
   // Data loading
@@ -842,15 +974,19 @@ export function CalendarScreen({ onOpenAdmin }: CalendarScreenProps) {
             'view'
           ),
           Sfsures_resourcetypesService.getAll({
-            select: ['sfsures_resourcetypeid', 'sfsures_status'],
+            select: ['sfsures_resourcetypeid', 'sfsures_name', 'sfsures_status'],
             filter: 'sfsures_status eq 997330000',
+            orderBy: ['sfsures_name asc'],
             top: 500,
           }),
           Sfsures_resourcesService.getAll({
             select: [
               'sfsures_resourceid',
               'sfsures_name',
+              'sfsures_description',
+              'sfsures_location',
               'sfsures_calendarcolor',
+              'sfsures_resourcephoto',
               '_sfsures_resourcetype_value',
             ],
             filter: `sfsures_recordstatus eq ${RECORD_STATUS_ACTIVE}`,
@@ -863,12 +999,61 @@ export function CalendarScreen({ onOpenAdmin }: CalendarScreenProps) {
             .map((resourceType) => resourceType.sfsures_resourcetypeid)
             .filter((id) => currentUser.isAppAdmin || permittedResourceTypeIds.has(id))
         )
+        const resourceTypesById = new Map(
+          (resourceTypeResult.data ?? [])
+            .map((resourceType) => [
+              resourceType.sfsures_resourcetypeid,
+              resourceType.sfsures_name,
+            ])
+            .filter(
+              (entry): entry is [string, string] =>
+                typeof entry[0] === 'string' &&
+                entry[0].length > 0 &&
+                typeof entry[1] === 'string' &&
+                entry[1].length > 0
+            )
+        )
+        const nextResourceTypeOptions = (resourceTypeResult.data ?? [])
+          .map((resourceType) => ({
+            id: resourceType.sfsures_resourcetypeid,
+            name: resourceType.sfsures_name,
+          }))
+          .filter(
+            (option): option is ResourceTypeOption =>
+              !!option.id &&
+              !!option.name &&
+              activePermittedTypeIds.has(option.id)
+          )
+          .sort((a, b) => a.name.localeCompare(b.name))
+        setResourceTypeOptions(nextResourceTypeOptions)
+        setSelectedResourceTypeId((current) =>
+          current && nextResourceTypeOptions.some((option) => option.id === current) ? current : ''
+        )
         const permittedResources = ((resourceResult.data ?? []) as ResourceRow[]).filter(
           (resource) =>
             !!resource.sfsures_resourceid &&
             !!resource._sfsures_resourcetype_value &&
             activePermittedTypeIds.has(resource._sfsures_resourcetype_value)
         )
+        setViewResources(
+          permittedResources
+            .map((resource) => ({
+              id: resource.sfsures_resourceid ?? '',
+              name: resource.sfsures_name ?? 'Unnamed resource',
+              resourceTypeId: resource._sfsures_resourcetype_value ?? '',
+              resourceTypeName:
+                resourceTypesById.get(resource._sfsures_resourcetype_value ?? '') ??
+                'Resource Type unavailable',
+              location: resource.sfsures_location ?? '',
+              description: resource.sfsures_description ?? '',
+              photoThumbnailUrl: resourcePhotoThumbnailSrc(resource.sfsures_resourcephoto),
+            }))
+            .filter((resource) => resource.id && resource.resourceTypeId)
+            .sort((a, b) =>
+              `${a.resourceTypeName}-${a.name}`.localeCompare(`${b.resourceTypeName}-${b.name}`)
+            )
+        )
+        setViewResourceId('')
         const permittedResourceIds = permittedResources
           .map((resource) => resource.sfsures_resourceid)
           .filter((id): id is string => !!id)
@@ -926,6 +1111,7 @@ export function CalendarScreen({ onOpenAdmin }: CalendarScreenProps) {
         const fallbackResourceColor = resourceColorForBackground(theme.primaryColor)
         const resourceColorsById = new Map<string, ResourceColorOption>()
         const resourceNamesById = new Map<string, string>()
+        const resourceTypesByResourceId = new Map<string, string>()
 
         for (const row of permittedResources) {
           const resourceId = row.sfsures_resourceid
@@ -937,14 +1123,27 @@ export function CalendarScreen({ onOpenAdmin }: CalendarScreenProps) {
           if (resourceId && row.sfsures_name) {
             resourceNamesById.set(normalizeDataverseId(resourceId), row.sfsures_name)
           }
+          if (resourceId && row._sfsures_resourcetype_value) {
+            resourceTypesByResourceId.set(resourceId, row._sfsures_resourcetype_value)
+          }
         }
 
         const occEvents = (occResult.data ?? []).map((row) =>
-          occurrenceToEvent(row as OccurrenceRow, resourceColorsById, fallbackResourceColor)
+          occurrenceToEvent(
+            row as OccurrenceRow,
+            resourceColorsById,
+            resourceTypesByResourceId,
+            fallbackResourceColor
+          )
         )
 
         const blackoutEvents = (blackoutResult.data ?? []).map((row) =>
-          blackoutToEvent(row as BlackoutRow, theme.accentColor, resourceNamesById)
+          blackoutToEvent(
+            row as BlackoutRow,
+            theme.accentColor,
+            resourceNamesById,
+            resourceTypesByResourceId
+          )
         )
 
         setEvents([...occEvents, ...blackoutEvents])
@@ -1012,6 +1211,190 @@ export function CalendarScreen({ onOpenAdmin }: CalendarScreenProps) {
     setLoadingSeriesEdit(false)
     setReservationActionError('')
   }, [])
+
+  const closeResourceInfo = useCallback(() => {
+    setSelectedViewResource(null)
+    setResourceInfoDetails({
+      status: 'idle',
+      resourceAttributes: [],
+    })
+  }, [])
+
+  const loadResourceInfoDetails = useCallback(async (resource: CalendarResourceOption) => {
+    setResourceInfoDetails({
+      status: 'loading',
+      resourceAttributes: [],
+    })
+
+    try {
+      const [definitionResult, valueResult] = await Promise.all([
+        Sfsures_attributedefinitionsService.getAll({
+          select: [
+            'sfsures_attributedefinitionid',
+            '_sfsures_resourcetype_value',
+            '_sfsures_resource_value',
+            'sfsures_name',
+            'sfsures_appliesto',
+            'sfsures_displayorder',
+          ],
+          filter: `statecode eq 0 and sfsures_appliesto eq ${ATTRIBUTE_APPLIES_TO_RESOURCE}`,
+          orderBy: ['sfsures_displayorder asc', 'sfsures_name asc'],
+          top: 1000,
+        }),
+        Sfsures_resourceattributevaluesService.getAll({
+          select: [
+            'sfsures_resourceattributevalueid',
+            '_sfsures_resource_value',
+            '_sfsures_attributedefinition_value',
+            'sfsures_valuetext',
+            'sfsures_valuechoice',
+            'sfsures_valuenumber',
+            'sfsures_valuedatetime',
+            'sfsures_valueboolean',
+          ],
+          filter: `statecode eq 0 and _sfsures_resource_value eq ${resource.id}`,
+          top: 1000,
+        }),
+      ])
+
+      const valuesByDefinitionId = new Map(
+        ((valueResult.data ?? []) as Sfsures_resourceattributevalues[]).map((row) => [
+          normalizeDataverseId(row._sfsures_attributedefinition_value),
+          typedValueText(row).trim(),
+        ])
+      )
+
+      const resourceAttributes = ((definitionResult.data ?? []) as Sfsures_attributedefinitions[])
+        .filter((definition) => {
+          const definitionResourceTypeId = normalizeDataverseId(
+            definition._sfsures_resourcetype_value
+          )
+          const definitionResourceId = normalizeDataverseId(definition._sfsures_resource_value)
+
+          return (
+            definition.sfsures_appliesto === ATTRIBUTE_APPLIES_TO_RESOURCE &&
+            (definitionResourceTypeId === normalizeDataverseId(resource.resourceTypeId) ||
+              definitionResourceId === normalizeDataverseId(resource.id))
+          )
+        })
+        .map((definition) => ({
+          id: definition.sfsures_attributedefinitionid,
+          label: definition.sfsures_name,
+          value:
+            valuesByDefinitionId.get(normalizeDataverseId(definition.sfsures_attributedefinitionid)) ||
+            'Not provided',
+        }))
+
+      setResourceInfoDetails({
+        status: 'ready',
+        resourceAttributes,
+      })
+    } catch (err) {
+      console.warn('Resource details could not be loaded:', err)
+      setResourceInfoDetails({
+        status: 'error',
+        resourceAttributes: [],
+      })
+    }
+  }, [])
+
+  const openResourceInfo = useCallback(
+    (resourceId: string) => {
+      setViewResourceId(resourceId)
+      const resource = viewResources.find((item) => item.id === resourceId) ?? null
+
+      if (!resource) {
+        closeResourceInfo()
+        return
+      }
+
+      setSelectedViewResource(resource)
+      void loadResourceInfoDetails(resource)
+    },
+    [closeResourceInfo, loadResourceInfoDetails, viewResources]
+  )
+
+  const reserveSelectedViewResource = useCallback(() => {
+    if (!selectedViewResource) return
+
+    setBookingResourceContext(selectedViewResource)
+    setBookingSlot(nextHourSlot())
+    closeResourceInfo()
+  }, [closeResourceInfo, selectedViewResource])
+
+  const openResourcePhotoPreview = useCallback(async (resource: CalendarResourceOption) => {
+    if (!resource.photoThumbnailUrl) return
+
+    const requestId = resourcePhotoPreviewRequestIdRef.current + 1
+    resourcePhotoPreviewRequestIdRef.current = requestId
+    setResourcePhotoPreviewResource(resource)
+    setResourcePhotoPreviewFullSrc(null)
+    setResourcePhotoPreviewStatus('loading')
+
+    try {
+      const result = await Sfsures_resourcesService.downloadImage(
+        resource.id,
+        RESOURCE_PHOTO_COLUMN,
+        true
+      )
+      const bytes = result.data
+
+      if (!bytes || bytes.byteLength === 0) {
+        throw new Error('Dataverse returned an empty full-size image.')
+      }
+
+      const fullSizeSrc = await resourcePhotoBytesAsDataUrl(bytes)
+      if (resourcePhotoPreviewRequestIdRef.current !== requestId) return
+
+      setResourcePhotoPreviewFullSrc(fullSizeSrc)
+      setResourcePhotoPreviewStatus('full')
+    } catch (err) {
+      if (resourcePhotoPreviewRequestIdRef.current !== requestId) return
+
+      console.warn('The full-size Resource photo could not be loaded:', err)
+      setResourcePhotoPreviewStatus('thumbnail')
+    }
+  }, [])
+
+  const closeResourcePhotoPreview = useCallback(() => {
+    resourcePhotoPreviewRequestIdRef.current += 1
+    setResourcePhotoPreviewResource(null)
+    setResourcePhotoPreviewFullSrc(null)
+    setResourcePhotoPreviewStatus('loading')
+  }, [])
+
+  const handleResourcePhotoPreviewKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLDivElement>) => {
+      if (event.key !== 'Escape') return
+
+      event.preventDefault()
+      closeResourcePhotoPreview()
+    },
+    [closeResourcePhotoPreview]
+  )
+
+  const handleResourceTypeFilterChange = useCallback(
+    (nextResourceTypeId: string) => {
+      setSelectedResourceTypeId(nextResourceTypeId)
+      setViewResourceId('')
+
+      if (
+        nextResourceTypeId &&
+        selectedEvent &&
+        selectedEvent.extendedProps?.resourceTypeId !== nextResourceTypeId
+      ) {
+        closeReservationInfo()
+      }
+      if (
+        nextResourceTypeId &&
+        selectedViewResource &&
+        selectedViewResource.resourceTypeId !== nextResourceTypeId
+      ) {
+        closeResourceInfo()
+      }
+    },
+    [closeReservationInfo, closeResourceInfo, selectedEvent, selectedViewResource]
+  )
 
   // ---------------------------------------------------------------------------
   // Interaction handlers
@@ -1482,6 +1865,38 @@ export function CalendarScreen({ onOpenAdmin }: CalendarScreenProps) {
           </div>
         )}
 
+        <div className={styles.calendarFilterBar}>
+          <label className={styles.resourceTypeFilter}>
+            <span>Resource Type</span>
+            <select
+              value={selectedResourceTypeId}
+              onChange={(event) => handleResourceTypeFilterChange(event.target.value)}
+            >
+              <option value="">All Resource Types</option>
+              {resourceTypeOptions.map((resourceType) => (
+                <option key={resourceType.id} value={resourceType.id}>
+                  {resourceType.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className={styles.resourceTypeFilter}>
+            <span>View Resource</span>
+            <select
+              value={viewResourceId}
+              onChange={(event) => openResourceInfo(event.target.value)}
+              disabled={filteredViewResources.length === 0}
+            >
+              <option value="">Choose a Resource</option>
+              {filteredViewResources.map((resource) => (
+                <option key={resource.id} value={resource.id}>
+                  {resource.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
         <div className={styles.calendarWrap}>
           <FullCalendar
             ref={calendarRef}
@@ -1509,7 +1924,7 @@ export function CalendarScreen({ onOpenAdmin }: CalendarScreenProps) {
               week: 'Week',
               day: 'Day',
             }}
-            events={events}
+            events={visibleEvents}
             selectable={true}
             selectMirror={true}
             dayMaxEvents={true}
@@ -1774,14 +2189,189 @@ export function CalendarScreen({ onOpenAdmin }: CalendarScreenProps) {
         </div>
       )}
 
+      {selectedViewResource && (
+        <div
+          className={styles.popoverBackdrop}
+          onClick={closeResourceInfo}
+        >
+          <div
+            ref={resourcePopoverRef}
+            className={`${styles.popover} ${styles.resourceInfoModal}`}
+            style={{ borderTopColor: theme.primaryColor }}
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="resource-info-title"
+            tabIndex={-1}
+          >
+            <p
+              className={styles.popoverLabel}
+              style={{ color: theme.primaryColor }}
+            >
+              Resource
+            </p>
+            <h2 id="resource-info-title" className={styles.popoverTitle}>
+              {selectedViewResource.name}
+            </h2>
+
+            <div className={styles.resourceInfoBody}>
+              {selectedViewResource.photoThumbnailUrl ? (
+                <button
+                  type="button"
+                  className={styles.resourceInfoPhotoButton}
+                  onClick={() => void openResourcePhotoPreview(selectedViewResource)}
+                >
+                  <img
+                    src={selectedViewResource.photoThumbnailUrl}
+                    alt={`${selectedViewResource.name} resource photo`}
+                    className={styles.resourceInfoPhoto}
+                  />
+                </button>
+              ) : (
+                <div className={styles.resourceInfoPhotoPlaceholder}>No photo uploaded</div>
+              )}
+
+              <dl className={styles.resourceInfoList}>
+                <div>
+                  <dt>Resource Type</dt>
+                  <dd>{selectedViewResource.resourceTypeName}</dd>
+                </div>
+                {selectedViewResource.location && (
+                  <div>
+                    <dt>Location</dt>
+                    <dd>{selectedViewResource.location}</dd>
+                  </div>
+                )}
+              </dl>
+
+              {selectedViewResource.description && (
+                <section className={styles.commentsSection} aria-label="Resource description">
+                  <p className={styles.commentsLabel}>Description</p>
+                  <p className={styles.commentsText}>{selectedViewResource.description}</p>
+                </section>
+              )}
+
+              {resourceInfoDetails.status === 'loading' && (
+                <section className={styles.detailValueSection} aria-label="Resource attributes">
+                  <p className={styles.detailValueMuted}>Loading Resource Attributes...</p>
+                </section>
+              )}
+              {resourceInfoDetails.status === 'error' && (
+                <section className={styles.detailValueSection} aria-label="Resource attributes">
+                  <p className={styles.detailValueMuted}>Resource Attributes unavailable.</p>
+                </section>
+              )}
+              {resourceInfoDetails.status === 'ready' && (
+                <section className={styles.detailValueSection} aria-label="Resource attributes">
+                  <p className={styles.detailValueHeading}>Resource Attributes</p>
+                  {resourceInfoDetails.resourceAttributes.length === 0 ? (
+                    <p className={styles.detailValueMuted}>No Resource Attributes configured.</p>
+                  ) : (
+                    <dl className={styles.detailValueList}>
+                      {resourceInfoDetails.resourceAttributes.map((item) => (
+                        <div key={item.id}>
+                          <dt>{item.label}</dt>
+                          <dd>{item.value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  )}
+                </section>
+              )}
+            </div>
+
+            <section className={styles.actionSection} aria-label="Resource actions">
+              <div className={styles.actionRow}>
+                <button
+                  className={styles.primaryAction}
+                  onClick={reserveSelectedViewResource}
+                >
+                  Reserve This Resource
+                </button>
+                <button
+                  className={styles.secondaryAction}
+                  onClick={closeResourceInfo}
+                >
+                  Close
+                </button>
+              </div>
+            </section>
+          </div>
+        </div>
+      )}
+
+      {resourcePhotoPreviewResource && resourcePhotoPreviewResource.photoThumbnailUrl && (
+        <div
+          className={styles.popoverBackdrop}
+          onClick={closeResourcePhotoPreview}
+        >
+          <div
+            ref={resourcePhotoPreviewRef}
+            className={`${styles.popover} ${styles.resourcePhotoPreviewModal}`}
+            style={{ borderTopColor: theme.primaryColor }}
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="resource-photo-preview-title"
+            tabIndex={-1}
+            onKeyDown={handleResourcePhotoPreviewKeyDown}
+          >
+            <p className={styles.popoverLabel}>Resource Photo</p>
+            <h2 id="resource-photo-preview-title" className={styles.popoverTitle}>
+              {resourcePhotoPreviewResource.name}
+            </h2>
+            <div className={styles.resourcePhotoPreviewBody}>
+              <img
+                src={
+                  resourcePhotoPreviewFullSrc ??
+                  resourcePhotoPreviewResource.photoThumbnailUrl
+                }
+                alt={`${resourcePhotoPreviewResource.name} resource photo`}
+                onError={() => {
+                  if (resourcePhotoPreviewStatus === 'full') {
+                    setResourcePhotoPreviewFullSrc(null)
+                    setResourcePhotoPreviewStatus('thumbnail')
+                  }
+                }}
+              />
+            </div>
+            <section className={styles.actionSection} aria-label="Resource photo actions">
+              <div className={styles.modalStatusRow}>
+                <span role="status">
+                  {resourcePhotoPreviewStatus === 'loading'
+                    ? 'Loading full-size photo...'
+                    : resourcePhotoPreviewStatus === 'full'
+                      ? 'Showing full-size photo'
+                      : 'Full-size photo unavailable; showing thumbnail'}
+                </span>
+              </div>
+              <div className={styles.actionRow}>
+                <button
+                  className={styles.primaryAction}
+                  onClick={closeResourcePhotoPreview}
+                >
+                  Done
+                </button>
+              </div>
+            </section>
+          </div>
+        </div>
+      )}
+
       {/* Reservation modal */}
       {bookingSlot && (
         <BookingModal
           start={bookingSlot.start}
           end={bookingSlot.end}
-          onClose={() => setBookingSlot(null)}
+          initialResourceTypeId={bookingResourceContext?.resourceTypeId ?? selectedResourceTypeId}
+          initialResourceId={bookingResourceContext?.id ?? ''}
+          onClose={() => {
+            setBookingSlot(null)
+            setBookingResourceContext(null)
+          }}
           onBooked={() => {
             refreshCalendar()
+            setBookingResourceContext(null)
           }}
         />
       )}
@@ -1790,6 +2380,7 @@ export function CalendarScreen({ onOpenAdmin }: CalendarScreenProps) {
         <BookingModal
           start={editingReservation.start}
           end={editingReservation.end}
+          initialResourceTypeId={selectedResourceTypeId}
           initialReservation={editingReservation.reservation}
           onClose={() => setEditingReservation(null)}
           onBooked={() => {
@@ -1802,6 +2393,7 @@ export function CalendarScreen({ onOpenAdmin }: CalendarScreenProps) {
         <BookingModal
           start={editingSeries.start}
           end={editingSeries.end}
+          initialResourceTypeId={selectedResourceTypeId}
           initialSeries={editingSeries.series}
           onClose={() => setEditingSeries(null)}
           onBooked={() => {

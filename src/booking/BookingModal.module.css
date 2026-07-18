@@ -119,6 +119,13 @@
   padding-right: 2rem;
 }
 
+.select:disabled {
+  background-color: #f3f3f3;
+  color: #666666;
+  cursor: not-allowed;
+  opacity: 1;
+}
+
 .timeRow {
   display: grid;
   grid-template-columns: 1fr 1fr;
