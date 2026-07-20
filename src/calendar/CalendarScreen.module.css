@@ -829,25 +829,62 @@
 }
 
 .resourcePhotoPreviewModal {
-  max-width: min(900px, calc(100vw - 2rem));
+  width: min(96vw, 72rem);
+  max-width: min(96vw, 72rem);
+  height: min(94dvh, 54rem);
+  max-height: min(94dvh, 54rem);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+}
+
+.resourcePhotoPreviewModal .popoverLabel {
+  flex: 0 0 auto;
+  margin: 1rem 1.5rem 0.375rem;
+}
+
+.resourcePhotoPreviewModal .popoverTitle {
+  flex: 0 0 auto;
+  margin: 0 1.5rem 1.25rem;
 }
 
 .resourcePhotoPreviewBody {
+  flex: 1 1 0;
+  min-height: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  max-height: min(68dvh, 720px);
-  overflow: auto;
-  border: 1px solid #dedede;
-  border-radius: 8px;
-  background: #f5f5f5;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: #111111;
+  padding: 1rem;
 }
 
 .resourcePhotoPreviewBody img {
   display: block;
+  width: auto;
+  height: auto;
   max-width: 100%;
-  max-height: min(68dvh, 720px);
+  max-height: 100%;
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid #d8d8d8;
+  border-radius: 6px;
   object-fit: contain;
+  background: #ffffff;
+}
+
+.resourcePhotoPreviewModal .actionSection {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 0;
+  padding: 0.875rem 1.5rem;
+  border-top: 1px solid #ececec;
 }
 
 .modalStatusRow {
@@ -855,6 +892,17 @@
   color: #666666;
   font-size: 0.8125rem;
   line-height: 1.4;
+}
+
+.resourcePhotoPreviewModal .modalStatusRow {
+  margin: 0;
+  color: #1a1a1a;
+  font-size: 1rem;
+}
+
+.resourcePhotoPreviewModal .primaryAction {
+  min-height: 38px;
+  font-size: 0.875rem;
 }
 
 /* ---- Responsive ---- */
