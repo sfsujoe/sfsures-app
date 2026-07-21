@@ -22,8 +22,9 @@ import './App.css'
 
 const AdminApp = lazy(() => import('./admin/AdminApp'))
 const HelpPage = lazy(() => import('./help/HelpPage'))
+const ReportsScreen = lazy(() => import('./reports/ReportsScreen'))
 
-type ActiveScreen = 'calendar' | 'admin'
+type ActiveScreen = 'calendar' | 'reports' | 'admin'
 
 function helpTopicFromHash(): string | null {
   const match = window.location.hash.match(/^#\/help\/?([^/?#]*)/)
@@ -76,8 +77,25 @@ function AppRoutes() {
     )
   }
 
+  if (activeScreen === 'reports' && currentUser?.canViewReports) {
+    return (
+      <Suspense
+        fallback={
+          <div className="routeLoading" role="status">
+            Loading reports...
+          </div>
+        }
+      >
+        <ReportsScreen onBack={() => setActiveScreen('calendar')} />
+      </Suspense>
+    )
+  }
+
   return (
     <CalendarScreen
+      onOpenReports={
+        currentUser?.canViewReports ? () => setActiveScreen('reports') : undefined
+      }
       onOpenAdmin={
         currentUser?.isAppAdmin ? () => setActiveScreen('admin') : undefined
       }

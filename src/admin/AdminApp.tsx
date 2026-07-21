@@ -21,7 +21,6 @@ const NAV_ITEMS = [
   { id: 'users', label: 'Users', disabled: false },
   { id: 'groups', label: 'Groups', disabled: false },
   { id: 'blackouts', label: 'Blackouts', disabled: false },
-  { id: 'reports', label: 'Reports', disabled: true },
 ] as const
 
 type AdminSection = (typeof NAV_ITEMS)[number]['id']
@@ -33,7 +32,6 @@ const SECTION_TITLES: Record<AdminSection, string> = {
   users: 'Users',
   groups: 'Groups',
   blackouts: 'Blackouts',
-  reports: 'Reports',
 }
 
 export default function AdminApp({ onBack }: AdminAppProps) {

@@ -1,0 +1,139 @@
+.reportsShell {
+  min-height: 100dvh;
+  display: grid;
+  grid-template-columns: minmax(11rem, 13.5rem) minmax(0, 1fr);
+  background: #f6f7f9;
+  color: #1a1a1a;
+  font-family: var(--sfsures-font, 'Source Sans 3', system-ui, -apple-system, 'Segoe UI', sans-serif);
+}
+
+.rail {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  border-right: 1px solid color-mix(in srgb, var(--reports-date-header, #FFEC82) 72%, black);
+  background: var(--reports-date-header, #FFEC82);
+  padding: 1rem 0.75rem;
+}
+
+.backButton,
+.primaryButton {
+  min-height: 38px;
+  border-radius: 6px;
+  border: 1px solid var(--reports-primary, #442C8B);
+  background: var(--reports-primary, #442C8B);
+  color: #ffffff;
+  padding: 0.45rem 0.875rem;
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: filter 0.12s;
+}
+
+.backButton:hover,
+.primaryButton:hover {
+  filter: brightness(0.94);
+}
+
+.workspace {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.25rem;
+  overflow: auto;
+}
+
+.workspaceHeader {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid #dddddd;
+  padding-bottom: 0.875rem;
+}
+
+.eyebrow {
+  margin: 0 0 0.25rem;
+  color: var(--reports-primary, #442C8B);
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.workspaceHeader h1,
+.deniedPanel h1 {
+  margin: 0;
+  color: #1a1a1a;
+  font-size: 1.35rem;
+  line-height: 1.15;
+}
+
+.signedIn {
+  max-width: 18rem;
+  margin: 0;
+  color: #555555;
+  font-size: 0.875rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.placeholderPanel {
+  border: 1px solid #dddddd;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 1rem;
+}
+
+.placeholderPanel h2 {
+  margin: 0;
+  color: #1a1a1a;
+  font-size: 1rem;
+  line-height: 1.25;
+}
+
+.denied {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  background: #f6f7f9;
+  padding: 1rem;
+}
+
+.deniedPanel {
+  width: min(100%, 28rem);
+  border: 1px solid #dddddd;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 1.25rem;
+  box-shadow:
+    0 16px 38px rgba(0, 0, 0, 0.12),
+    0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.deniedPanel .primaryButton {
+  margin-top: 1rem;
+}
+
+@media (max-width: 760px) {
+  .reportsShell {
+    grid-template-columns: 1fr;
+  }
+
+  .rail {
+    border-right: 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--reports-date-header, #FFEC82) 72%, black);
+  }
+
+  .workspaceHeader {
+    align-items: start;
+    flex-direction: column;
+  }
+
+  .signedIn {
+    text-align: left;
+  }
+}

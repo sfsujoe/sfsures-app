@@ -480,10 +480,11 @@ function dateInputFromIso(value: string | undefined | null): string {
 // ---------------------------------------------------------------------------
 
 interface CalendarScreenProps {
+  onOpenReports?: () => void
   onOpenAdmin?: () => void
 }
 
-export function CalendarScreen({ onOpenAdmin }: CalendarScreenProps) {
+export function CalendarScreen({ onOpenReports, onOpenAdmin }: CalendarScreenProps) {
   const { theme } = useTheme()
   const currentUser = useCurrentUser()
   const calendarRef = useRef<FullCalendar>(null)
@@ -1805,10 +1806,22 @@ export function CalendarScreen({ onOpenAdmin }: CalendarScreenProps) {
                 </div>
               )}
             </div>
+            {onOpenReports && (
+              <button
+                type="button"
+                className={styles.headerButton}
+                onClick={() => {
+                  setHelpMenuOpen(false)
+                  onOpenReports()
+                }}
+              >
+                Reports
+              </button>
+            )}
             {onOpenAdmin && (
               <button
                 type="button"
-                className={styles.adminButton}
+                className={styles.headerButton}
                 onClick={onOpenAdmin}
               >
                 Admin
