@@ -20,6 +20,7 @@ export * as Sfsures_reservationseriesesModel from './models/Sfsures_reservations
 export * as Sfsures_resourceattributevaluesModel from './models/Sfsures_resourceattributevaluesModel';
 export * as Sfsures_resourcesModel from './models/Sfsures_resourcesModel';
 export * as Sfsures_resourcetypesModel from './models/Sfsures_resourcetypesModel';
+export * as Sfsures_savedreportsModel from './models/Sfsures_savedreportsModel';
 export * as Sfsures_usergroupassignmentsModel from './models/Sfsures_usergroupassignmentsModel';
 export * as SystemusersModel from './models/SystemusersModel';
 
@@ -39,5 +40,6 @@ export * from './services/Sfsures_reservationseriesesService';
 export * from './services/Sfsures_resourceattributevaluesService';
 export * from './services/Sfsures_resourcesService';
 export * from './services/Sfsures_resourcetypesService';
+export * from './services/Sfsures_savedreportsService';
 export * from './services/Sfsures_usergroupassignmentsService';
 export * from './services/SystemusersService';

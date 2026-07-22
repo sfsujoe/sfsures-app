@@ -102,6 +102,11 @@
           "entitySetName": "sfsures_reservationattributevalues",
           "logicalName": "sfsures_reservationattributevalue",
           "isHidden": false
+        },
+        "savedreports": {
+          "entitySetName": "sfsures_savedreports",
+          "logicalName": "sfsures_savedreport",
+          "isHidden": false
         }
       },
       "environmentVariableName": ""

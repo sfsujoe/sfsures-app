@@ -103,6 +103,13 @@ export const dataSourcesInfo = {
     "dataSourceType": "Dataverse",
     "apis": {}
   },
+  "sfsures_savedreports": {
+    "tableId": "",
+    "version": "",
+    "primaryKey": "sfsures_savedreportid",
+    "dataSourceType": "Dataverse",
+    "apis": {}
+  },
   "sfsures_usergroupassignments": {
     "tableId": "",
     "version": "",
