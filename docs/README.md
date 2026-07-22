@@ -2,42 +2,43 @@
 
 This folder is the local reference library for the SFSU Resource Reservation System, a Power Apps Code App built with React, TypeScript, Vite, FullCalendar, Office365Users, and Microsoft Dataverse. The app is intended to replace LabArchives Scheduler for SFSU resource booking, with a Dataverse-backed model for resources, reservations, blackout windows, group-scoped access, theming, audit logging, and per-department managed-solution replication.
 
-Last indexed: 2026-07-18.
+Last indexed: 2026-07-22.
 
-## Next Session: Calendar Polish Follow-up
+## Next Session: Reports Polish Follow-up
 
-Calendar Resource Type filtering, the `View Resource` browser, Resource Info photo preview, `Reserve This Resource` handoff, BookingModal Resource Type filtering, and the Admin Resource Types/Resources rail split are implemented. Next session, continue calendar screen polish and verify the new flows in the published Power Apps runtime. Use [Calendar Resource Filters and Admin IA Split Addendum](sfsu_calendar_resource_filters_and_admin_ia_split_addendum.md) as the current resume point, then review `src/calendar/CalendarScreen.tsx`, `src/calendar/CalendarScreen.module.css`, and `src/booking/BookingModal.tsx`.
+Reports has moved out of the Admin rail into a calendar-header entry point for App Admins and Report Viewers. The first Reports screen can run reservation reports by Resource, Resource Type, User, or Group with standard/custom date ranges, browser viewing, sortable result columns, and CSV export. Next session, continue Reports polish: fix quirks in the Title column and generated CSV, and add an SF State ID CSV column immediately to the right of Owner Email. Use [Reports Screen and Saved Reports Addendum](sfsu_reports_screen_and_saved_reports_addendum.md) as the current resume point, then review `src/reports/ReportsScreen.tsx` and `src/reports/ReportsScreen.module.css`.
 
 ## Quick Project Shape
 
 - `src/` contains the app source: `AccessGate`, `UserContext`, `CalendarScreen`, `BookingModal`, accessibility helpers, theme context, and generated Dataverse/Office365 service/model files.
 - `.power/` contains generated Power Apps schema metadata for Dataverse and Office365Users.
-- `power.config.json` binds this local Code App to the Power Apps environment and lists the 15 custom Dataverse tables plus the built-in System User data source.
+- `power.config.json` binds this local Code App to the Power Apps environment and lists the 16 custom Dataverse tables plus the built-in System User data source.
 - `dist/` is the built app output; `public/` currently only holds the Vite asset.
 - `docs/` contains historical runbooks, schema references, security notes, and current implementation addenda.
 
 ## Recommended Reading Order
 
-1. [Calendar Resource Filters and Admin IA Split Addendum](sfsu_calendar_resource_filters_and_admin_ia_split_addendum.md) for the current calendar Resource Type/View Resource filters, Resource Info modal, reserve handoff, BookingModal selector behavior, logo focus fix, and Admin Resource Types/Resources split.
-2. [Admin Blackouts Addendum](sfsu_admin_blackouts_addendum.md) for the implemented Admin Blackouts screen, blackout conflict/calendar terminology fixes, removal flow, and earlier Admin rail follow-up.
-3. [Help Site and Calendar Header Addendum](sfsu_help_site_and_calendar_header_addendum.md) for verified Custom Field display, Help/Gateway header polish, the standalone end-user help route, and the previous Blackouts handoff.
-4. [Dataverse Build Sheet](sfsu_dataverse_build_sheet.md) for the canonical schema and the Blackout Window table; read the custom-field addenda for the fifteenth-table extension. Note: this file currently has copied project/export noise before the actual build-sheet heading; search for `Dataverse Build Sheet` if needed.
-5. [Generated Dataverse Name Fields Addendum](sfsu_generated_dataverse_name_fields_addendum.md) for the durable rule against selecting generated phantom custom `*name` fields.
-6. [Resource Attributes and Custom Fields Addendum](sfsu_resource_attributes_and_custom_fields_addendum.md) for Resource Attributes vs Custom Fields terminology, inheritance behavior, reservation answer persistence, and calendar detail display.
-7. [Group Permissions and Reservation Custom Fields Addendum](sfsu_group_permissions_and_reservation_custom_fields_addendum.md) for group-only permission behavior and the reservation-answer schema/data-source extension; its "not yet implemented" UI status is superseded by the newer addendum above.
-8. [Security Roles and Teams Addendum](sfsu_security_roles_and_teams_addendum.md) for the current enforcement model; it supersedes older role/team next steps.
-9. [Threat Model Addendum](sfsu_threat_model_addendum.md) for platform-enforced vs app-enforced rules and accepted residual risks.
-10. [UI Build Kickoff Addendum](sfsu_ui_build_kickoff_addendum.md) for the published base schema, generated service names, and Code App scaffold facts.
-11. [Booking Modal and Layout Fix Addendum](sfsu_booking_modal_and_layout_fix_addendum.md) for the current end-to-end booking MVP and Dataverse lookup conventions.
-12. [UI Branding and Booking Confirmation Polish Addendum](sfsu_ui_branding_and_booking_confirmation_addendum.md) for the current modal confirmation behavior, bundled SFSU logo/font defaults, and calendar visual polish.
-13. [Reservation Details, Comments, and Limits Addendum](sfsu_ui_reservation_details_comments_and_limits_addendum.md) for the current header/profile polish, reservation detail modal, comments, and App Settings-backed reservation limits.
-14. [Recurrence, App Permissions, and Calendar Actions Addendum](sfsu_recurrence_permissions_calendar_addendum.md) for current recurring reservation workflows, app-level group permissions, edit/delete reservation actions, and calendar-layout decisions.
-15. [Admin Theme, Users, Groups, and Audit Logging Addendum](sfsu_admin_theme_users_groups_audit_addendum.md) for the lazy admin shell, SFSU preset theming, resource calendar colors, and the earlier Users/Groups/audit implementation.
-16. [App User Dataverse Mapping and Safer Onboarding Addendum](sfsu_appuser_dataverse_mapping_and_onboarding_addendum.md) for the App User-to-System User lookup, fail-closed onboarding, and Add User confirmation.
-17. [Admin Resources Catalog and Photos Addendum](sfsu_admin_resources_catalog_addendum.md) for the earlier combined Resources admin screen, Resource Photo image upload/preview, inactive Resource Type reservability, and Resource data-source refresh notes.
-18. [Accessibility Tier 1 Addendum](sfsu_accessibility_tier1_addendum.md) for completed accessibility fixes and queued DPRC/WCAG work.
-19. [Environment and Demo Planning Addendum](sfsu_environment_and_demo_planning_addendum.md) for sandbox/production environment strategy and demo plan.
-20. Older planning and exploration docs are useful for rationale, but treat newer addenda above as current when they conflict.
+1. [Reports Screen and Saved Reports Addendum](sfsu_reports_screen_and_saved_reports_addendum.md) for the current Reports entry point, first reservation report screen, CSV/browser-grid behavior, Saved Report table/data source, and next Reports polish items.
+2. [Calendar Resource Filters and Admin IA Split Addendum](sfsu_calendar_resource_filters_and_admin_ia_split_addendum.md) for the current calendar Resource Type/View Resource filters, Resource Info modal, reserve handoff, BookingModal selector behavior, logo focus fix, and Admin Resource Types/Resources split.
+3. [Admin Blackouts Addendum](sfsu_admin_blackouts_addendum.md) for the implemented Admin Blackouts screen, blackout conflict/calendar terminology fixes, removal flow, and earlier Admin rail follow-up.
+4. [Help Site and Calendar Header Addendum](sfsu_help_site_and_calendar_header_addendum.md) for verified Custom Field display, Help/Gateway header polish, the standalone end-user help route, and the previous Blackouts handoff.
+5. [Dataverse Build Sheet](sfsu_dataverse_build_sheet.md) for the canonical base schema and the Blackout Window table; read newer addenda for the Reservation Attribute Value and Saved Report extensions. Note: this file currently has copied project/export noise before the actual build-sheet heading; search for `Dataverse Build Sheet` if needed.
+6. [Generated Dataverse Name Fields Addendum](sfsu_generated_dataverse_name_fields_addendum.md) for the durable rule against selecting generated phantom custom `*name` fields.
+7. [Resource Attributes and Custom Fields Addendum](sfsu_resource_attributes_and_custom_fields_addendum.md) for Resource Attributes vs Custom Fields terminology, inheritance behavior, reservation answer persistence, and calendar detail display.
+8. [Group Permissions and Reservation Custom Fields Addendum](sfsu_group_permissions_and_reservation_custom_fields_addendum.md) for group-only permission behavior and the reservation-answer schema/data-source extension; its "not yet implemented" UI status is superseded by the newer addendum above.
+9. [Security Roles and Teams Addendum](sfsu_security_roles_and_teams_addendum.md) for the current enforcement model; it supersedes older role/team next steps.
+10. [Threat Model Addendum](sfsu_threat_model_addendum.md) for platform-enforced vs app-enforced rules and accepted residual risks.
+11. [UI Build Kickoff Addendum](sfsu_ui_build_kickoff_addendum.md) for the published base schema, generated service names, and Code App scaffold facts.
+12. [Booking Modal and Layout Fix Addendum](sfsu_booking_modal_and_layout_fix_addendum.md) for the current end-to-end booking MVP and Dataverse lookup conventions.
+13. [UI Branding and Booking Confirmation Polish Addendum](sfsu_ui_branding_and_booking_confirmation_addendum.md) for the current modal confirmation behavior, bundled SFSU logo/font defaults, and calendar visual polish.
+14. [Reservation Details, Comments, and Limits Addendum](sfsu_ui_reservation_details_comments_and_limits_addendum.md) for the current header/profile polish, reservation detail modal, comments, and App Settings-backed reservation limits.
+15. [Recurrence, App Permissions, and Calendar Actions Addendum](sfsu_recurrence_permissions_calendar_addendum.md) for current recurring reservation workflows, app-level group permissions, edit/delete reservation actions, and calendar-layout decisions.
+16. [Admin Theme, Users, Groups, and Audit Logging Addendum](sfsu_admin_theme_users_groups_audit_addendum.md) for the lazy admin shell, SFSU preset theming, resource calendar colors, and the earlier Users/Groups/audit implementation.
+17. [App User Dataverse Mapping and Safer Onboarding Addendum](sfsu_appuser_dataverse_mapping_and_onboarding_addendum.md) for the App User-to-System User lookup, fail-closed onboarding, and Add User confirmation.
+18. [Admin Resources Catalog and Photos Addendum](sfsu_admin_resources_catalog_addendum.md) for the earlier combined Resources admin screen, Resource Photo image upload/preview, inactive Resource Type reservability, and Resource data-source refresh notes.
+19. [Accessibility Tier 1 Addendum](sfsu_accessibility_tier1_addendum.md) for completed accessibility fixes and queued DPRC/WCAG work.
+20. [Environment and Demo Planning Addendum](sfsu_environment_and_demo_planning_addendum.md) for sandbox/production environment strategy and demo plan.
+21. Older planning and exploration docs are useful for rationale, but treat newer addenda above as current when they conflict.
 
 ## Session Workflow
 
@@ -72,6 +73,7 @@ Calendar Resource Type filtering, the `View Resource` browser, Resource Info pho
 | [sfsu_reservation_system_progress.md](sfsu_reservation_system_progress.md) | Early planning runbook covering metadata-driven resources, materialized recurrence occurrences, FullCalendar direction, and delegation risk. |
 | [sfsu_reservation_system_summary.md](sfsu_reservation_system_summary.md) | Early structured product summary for the intended reservation system and AI prompt context. |
 | [sfsu_recurrence_permissions_calendar_addendum.md](sfsu_recurrence_permissions_calendar_addendum.md) | Documents recurring reservation create/edit/delete workflows, seeded app-permission groups, reservation-info actions, and calendar layout decisions. |
+| [sfsu_reports_screen_and_saved_reports_addendum.md](sfsu_reports_screen_and_saved_reports_addendum.md) | Documents the standalone Reports entry point, first reservation report screen, CSV/browser-grid behavior, Saved Report table/data source, and next report polish items. |
 | [sfsu_resource_attributes_and_custom_fields_addendum.md](sfsu_resource_attributes_and_custom_fields_addendum.md) | Documents Resource Attributes vs Custom Fields, Resource Type/Resource scoped inheritance, booking answer persistence, deletion behavior, and calendar detail display. |
 | [sfsu_schema_build_complete_addendum.md](sfsu_schema_build_complete_addendum.md) | Historical schema-build completion note; still useful for rationale, but some ownership/naming facts were superseded by the security roles/teams addendum. |
 | [sfsu_security_roles_and_teams_addendum.md](sfsu_security_roles_and_teams_addendum.md) | Current source for security roles, Owner teams, reservation-table ownership, privilege inheritance, and enforcement-layer open tests. |
@@ -83,7 +85,7 @@ Calendar Resource Type filtering, the `View Resource` browser, Resource Info pho
 
 ## Dataverse Schema Documentation
 
-Start with [sfsu_dataverse_build_sheet.md](sfsu_dataverse_build_sheet.md) for the original dependency-first build order, then read [sfsu_group_permissions_and_reservation_custom_fields_addendum.md](sfsu_group_permissions_and_reservation_custom_fields_addendum.md) for the reservation-answer extension and [sfsu_resource_attributes_and_custom_fields_addendum.md](sfsu_resource_attributes_and_custom_fields_addendum.md) for the current Resource Attribute/Custom Field implementation. The current solution has 15 custom tables:
+Start with [sfsu_dataverse_build_sheet.md](sfsu_dataverse_build_sheet.md) for the original dependency-first build order, then read [sfsu_group_permissions_and_reservation_custom_fields_addendum.md](sfsu_group_permissions_and_reservation_custom_fields_addendum.md) for the reservation-answer extension, [sfsu_resource_attributes_and_custom_fields_addendum.md](sfsu_resource_attributes_and_custom_fields_addendum.md) for the current Resource Attribute/Custom Field implementation, and [sfsu_reports_screen_and_saved_reports_addendum.md](sfsu_reports_screen_and_saved_reports_addendum.md) for the Saved Report extension. The current solution has 16 custom tables:
 
 1. Resource Type
 2. Attribute Definition
@@ -100,6 +102,7 @@ Start with [sfsu_dataverse_build_sheet.md](sfsu_dataverse_build_sheet.md) for th
 13. Blackout Window
 14. App Settings
 15. Audit Log
+16. Saved Report
 
 Schema rules to preserve:
 
@@ -118,6 +121,7 @@ Schema rules to preserve:
 - App User is keyed by write-once SF State ID and has an optional `Dataverse User` lookup to the built-in System User table for future reservation `OwnerId` assignment.
 - Group includes stable `Group Key` and `Is System Group` fields. App logic keys off system group keys such as `APP_ADMINS` and `REPORT_VIEWERS`, not mutable group display names. Group Key should stay hidden from normal app UI.
 - Audit Log is append-only, denormalized on purpose, and should not use live lookup relationships for historical context. It now includes generic `Target Key` plus split group action types for group creation/editing and membership add/remove.
+- Saved Report is User/team-owned and stores named report filter definitions. `Filter JSON` (`sfsures_filterjson`) is required with a 32,000-character limit. Saved Report `Report Type` currently includes Reservations, Utilization, Cancellations, Resource Usage, User Activity, Audit Log, Blackouts, and Custom Field Responses.
 
 For generated TypeScript names, use [sfsu_ui_build_kickoff_addendum.md](sfsu_ui_build_kickoff_addendum.md). The CLI pluralizes some names unexpectedly, including `appsettingses` and `reservationserieses`. Also read [sfsu_generated_dataverse_name_fields_addendum.md](sfsu_generated_dataverse_name_fields_addendum.md) before adding new `$select` fields: generated custom `sfsures_*name` properties may be phantom display-name fields unless live Dataverse metadata proves they are real columns.
 
@@ -134,7 +138,7 @@ Current architecture:
 - Individual Group Resource Access rows are retained but intentionally ignored at runtime. The shared permission resolver uses only Group Resource Type Access and excludes the protected `APP_ADMINS` and `REPORT_VIEWERS` groups.
 - App Admins have implicit visibility to every Resource Type and may book any Resource for themselves. Booking for another user still requires that selected owner to have ordinary group-derived `Book` access.
 - App User onboarding maps the Office365Users identity to exactly one enabled human Dataverse System User before creation; this keeps application identity/history separate from the security principal used by `OwnerId`.
-- Admin screens live behind a lazy-loaded left-rail shell so the calendar-first experience stays light. Settings, Resource Types, Resources, Users, Groups, and Blackouts are active; Reports remains a placeholder. Groups uses separate permission/member dialogs, and the Resource Types/Resources screens manage Resource Attributes and reservation Custom Fields at Resource Type and Resource scope.
+- Admin screens live behind a lazy-loaded left-rail shell so the calendar-first experience stays light. Settings, Resource Types, Resources, Users, Groups, and Blackouts are active. Reports is a standalone route opened from the calendar header for App Admins and Report Viewers, not an Admin rail destination. Groups uses separate permission/member dialogs, and the Resource Types/Resources screens manage Resource Attributes and reservation Custom Fields at Resource Type and Resource scope.
 - SFSU theme choices are preset-only; Source Sans 3 is fixed and arbitrary color/font selection is intentionally excluded from admin UI.
 - Resource reservation event colors use a palette-only Resource `Calendar Color` choice plus dynamic black/white event text for contrast.
 - Per-department instances are preferred over one campus-wide app; managed-solution export/import is the replication path.
@@ -176,7 +180,7 @@ Known risks and accepted residuals:
 Current MVP, based on the docs and source tree:
 
 - React/Vite Code App scaffold exists and is bound to the Power Apps environment in `power.config.json`.
-- All 15 custom Dataverse service/model files are generated, including Reservation Attribute Value; the built-in System User source is also generated.
+- All 16 custom Dataverse service/model files are generated, including Reservation Attribute Value and Saved Report; the built-in System User source is also generated.
 - `AccessGate` validates the signed-in user through Office365Users and App User rows before rendering content, then loads active app group memberships for UI permission flags.
 - `CalendarScreen` loads occurrences, blackout windows, active resource calendar colors, permitted Resource Types/Resources, Attribute Definition labels, Resource Attribute values, and Custom Field answers with delegation-safe query shapes and renders them with FullCalendar, including centered header branding, signed-in user profile/Gateway link, Help menu, Resource Type event filtering, the `View Resource` dropdown and Resource Info modal, theme-driven date headers, 24-hour Week/Day views, resource-colored reservation events with contrast-aware text, and a reservation detail dialog with owner profile, comments, Resource Attribute values, Custom Field answers, and edit/delete actions.
 - The `#/help` route is a standalone, searchable end-user help site with stable topic IDs for future contextual help links; it intentionally excludes Admin help.
@@ -185,7 +189,8 @@ Current MVP, based on the docs and source tree:
 - Conflict detection against active occurrences and blackout windows is implemented for single bookings and recurring occurrence generation.
 - Theme values load through `ThemeContext` from `sfsures_appsettings`, with portable bundled SFSU logo and fixed Source Sans 3 defaults as fallback.
 - Reservation limits are loaded from `sfsures_appsettings` with code hard caps: max 50 generated occurrences and max 18 weeks per reservation/series span. App Admins may configure more restrictive values only.
-- Admin shell is implemented with a left rail and lazy-loaded admin sections. Settings, Users, Groups, Resources, and Blackouts are enabled; Reports is still a placeholder.
+- Admin shell is implemented with a left rail and lazy-loaded admin sections. Settings, Users, Groups, Resources, and Blackouts are enabled; Reports is intentionally outside Admin.
+- Reports screen is implemented as a standalone calendar-header route for App Admins and Report Viewers. The first reservation report can filter by Resource, Resource Type, User, or Group; use Today, Current Week, Current Month, Year to Date, All Time, or Custom Range; include Active and/or Cancelled rows; render sortable browser results with summary metrics; and download CSV.
 - App Settings screen is implemented with SFSU preset themes, logo URL, border radius, and reservation limits. It intentionally excludes arbitrary colors, font selection, and settings row-name editing.
 - Users screen is implemented with Office365Users directory search/typeahead, explicit Add User confirmation, App User-to-System User mapping, selected-user profile photo, disable/reactivate behavior, and per-user group membership checkboxes.
 - Groups screen is implemented with group search, custom group creation, selected-group details, separate accessible View/Edit Permissions and View/Edit Members dialogs, Resource Type `No access`/`View`/`Book` controls, protected App Admins/Report Viewers behavior, hidden auto-generated group keys, and membership count/type details.
@@ -202,14 +207,14 @@ Future production work:
 - Verify the new calendar Resource Type filter, `View Resource` dropdown, Resource Info modal, full-size Resource photo preview, and `Reserve This Resource` handoff in the published Power Apps runtime.
 - Verify Resource Attribute values and Custom Field answers with a non-admin Booker identity, including role privileges and own-record behavior.
 - Extend custom-field input support beyond the currently implemented Text and fixed-option Choice types to Number/DateTime/Boolean when product needs justify them.
-- Admin screens for logs/help and reports.
+- Admin screens for logs/help.
 - Group editing/deactivation workflow, if admins need to rename or retire custom groups; use `GroupEdited` audit rows if this is added.
 - Broader audit-log coverage for session-open, reservation create/edit/cancel, user create/disable/edit, blackout edits, and settings/theme changes.
 - Custom app-owned calendar toolbar so the date range can stay truly centered while Resource Type, view controls, and other controls grow around it.
 - Recurring reservation "cancel future events" workflow.
 - Transactional/server-side hardening for series create/edit/delete if the MVP's sequential Dataverse writes prove too fragile.
 - Keep future resource, blackout, report, and export screens lazy-loaded so the calendar bundle stays lean; the current Vite large chunk warning is a baseline metric, not a blocker.
-- Reports/export screens and Excel/SharePoint outputs.
+- Continue Reports work: saved report persistence, export polish, visualizations, Excel/SharePoint outputs, and published-runtime download verification.
 - Full DPRC/WCAG verification, including screen-reader testing and Tier 2/Tier 3 accessibility work.
 - Optional calendar layout follow-up if native scrollbar arrow buttons remain distracting in the Power Apps/browser host.
 - Production and sandbox environment provisioning, managed-solution import/export, and production role creation confirmation.
@@ -229,6 +234,10 @@ Future production work:
 - Decide later whether a repo-local `AGENTS.md` or `CLAUDE.md` is still needed; for now, personal skills plus this README cover startup and closeout.
 - Native scrollbar arrow buttons can still appear inside the calendar host; earlier CSS attempts were ineffective and should stay deferred unless layout changes make them easier to remove.
 - Continue calendar screen polish around top filter spacing, modal ergonomics, and date-range centering now that Resource Type and `View Resource` controls exist.
+- Fix Reports Title column quirks in browser results and related quirks in generated CSV.
+- Add SF State ID to report CSV output immediately to the right of Owner Email.
+- Wire Saved Report persistence in the Reports UI using the generated `Sfsures_savedreportsService`.
+- Add paging/continuation handling before relying on Reports for more than the current first `top: 5000` Reservation Occurrence rows.
 - Verify the New Reservation Resource Type/Resource pre-selection path and Edit Reservation disabled Resource Type/Resource controls in the published Power Apps runtime.
 - Secondary and destructive button colors are currently hard-coded semantic CSS; only primary/action branding is consistently theme-driven.
 - Series edit/delete currently uses sequential Dataverse writes, not a true transaction. Keep this accepted MVP limitation visible until a custom API/plugin/app-only backend is in scope.
