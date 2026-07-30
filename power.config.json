@@ -107,6 +107,11 @@
           "entitySetName": "sfsures_savedreports",
           "logicalName": "sfsures_savedreport",
           "isHidden": false
+        },
+        "reservablehourwindows": {
+          "entitySetName": "sfsures_reservablehourwindows",
+          "logicalName": "sfsures_reservablehourwindow",
+          "isHidden": false
         }
       },
       "environmentVariableName": ""

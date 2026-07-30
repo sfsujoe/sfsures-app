@@ -296,6 +296,44 @@
           "x-ms-schema-name": "sfsures_recordstatusName",
           "x-ms-read-only": true
         },
+        "sfsures_reservablehoursmode": {
+          "type": "string",
+          "title": "Reservable Hours Mode",
+          "x-ms-dataverse-attribute": "sfsures_reservablehoursmode",
+          "x-ms-dataverse-type": "PicklistType",
+          "x-ms-schema-name": "sfsures_ReservableHoursMode",
+          "required": true,
+          "enum": [
+            "Inherit from Resource Type",
+            "Any Time",
+            "Monday-Friday 8-5",
+            "Custom"
+          ],
+          "x-ms-enum-values": [
+            997330000,
+            997330001,
+            997330002,
+            997330003
+          ],
+          "Color": [
+            null,
+            null,
+            null,
+            null
+          ],
+          "x-ms-optionsetmetadataid": "7970cb44-698c-f111-ab0e-7ced8d3d4f6a",
+          "x-ms-isGlobal": false,
+          "x-ms-optionsetdisplayname": "Reservable Hours Mode",
+          "x-ms-optionSetType": "Picklist"
+        },
+        "sfsures_reservablehoursmodename": {
+          "type": "string",
+          "title": "sfsures_reservablehoursmodename",
+          "x-ms-dataverse-attribute": "sfsures_reservablehoursmodename",
+          "x-ms-dataverse-type": "VirtualType",
+          "x-ms-schema-name": "sfsures_reservablehoursmodeName",
+          "x-ms-read-only": true
+        },
         "sfsures_resourceid": {
           "type": "string",
           "title": "Resource",
@@ -447,6 +485,7 @@
         "modifiedonbehalfbyyominame",
         "organizationidname",
         "sfsures_name",
+        "sfsures_reservablehoursmode",
         "sfsures_resourceid",
         "statecode"
       ]

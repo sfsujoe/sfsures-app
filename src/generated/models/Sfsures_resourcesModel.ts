@@ -26,6 +26,13 @@ export const Sfsures_resourcessfsures_recordstatus = {
   997330001: 'Disabled'
 } as const;
 export type Sfsures_resourcessfsures_recordstatus = keyof typeof Sfsures_resourcessfsures_recordstatus;
+export const Sfsures_resourcessfsures_reservablehoursmode = {
+  997330000: 'InheritfromResourceType',
+  997330001: 'AnyTime',
+  997330002: 'Monday_Friday8_5',
+  997330003: 'Custom'
+} as const;
+export type Sfsures_resourcessfsures_reservablehoursmode = keyof typeof Sfsures_resourcessfsures_reservablehoursmode;
 export const Sfsures_resourcesstatecode = {
   0: 'Active',
   1: 'Inactive'
@@ -45,6 +52,7 @@ export interface Sfsures_resourcesBase {
   sfsures_location?: string;
   sfsures_name: string;
   sfsures_recordstatus?: Sfsures_resourcessfsures_recordstatus;
+  sfsures_reservablehoursmode: Sfsures_resourcessfsures_reservablehoursmode;
   sfsures_resourceid: string;
   sfsures_resourcephoto?: string;
   "sfsures_ResourceType@odata.bind"?: string;
@@ -68,6 +76,7 @@ export interface Sfsures_resources extends Sfsures_resourcesBase {
   organizationidname: string;
   sfsures_calendarcolorname?: string;
   sfsures_recordstatusname?: string;
+  sfsures_reservablehoursmodename?: string;
   sfsures_resourcephoto_timestamp?: number;
   sfsures_resourcephoto_url?: string;
   sfsures_resourcephotoid?: string;

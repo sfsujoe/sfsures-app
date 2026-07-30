@@ -61,6 +61,13 @@ export const dataSourcesInfo = {
     "dataSourceType": "Dataverse",
     "apis": {}
   },
+  "sfsures_reservablehourwindows": {
+    "tableId": "",
+    "version": "",
+    "primaryKey": "sfsures_reservablehourwindowid",
+    "dataSourceType": "Dataverse",
+    "apis": {}
+  },
   "sfsures_reservationattributevalues": {
     "tableId": "",
     "version": "",
