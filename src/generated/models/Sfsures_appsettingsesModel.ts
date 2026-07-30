@@ -17,6 +17,7 @@ export interface Sfsures_appsettingsesBase {
   importsequencenumber?: number;
   overriddencreatedon?: string;
   sfsures_accentcolor?: string;
+  sfsures_applogo?: string;
   sfsures_appsettingsid: string;
   sfsures_backgroundcolor?: string;
   sfsures_borderradiuspx?: number;
@@ -46,6 +47,9 @@ export interface Sfsures_appsettingses extends Sfsures_appsettingsesBase {
   modifiedonbehalfbyname?: string;
   modifiedonbehalfbyyominame: string;
   organizationidname: string;
+  sfsures_applogo_timestamp?: number;
+  sfsures_applogo_url?: string;
+  sfsures_applogoid?: string;
   sfsures_isactivename?: string;
   statecodename?: string;
   statuscodename?: string;
@@ -61,3 +65,6 @@ export interface Sfsures_appsettingses extends Sfsures_appsettingsesBase {
   organizationid?: object;
   _organizationid_value?: string;
 }
+export type Sfsures_appsettingsesImageColumnName = 'sfsures_applogo';
+
+export type Sfsures_appsettingsesUploadColumnName = Sfsures_appsettingsesImageColumnName;

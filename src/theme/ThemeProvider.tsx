@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Sfsures_appsettingsesService } from '../generated/services/Sfsures_appsettingsesService'
 import { ThemeContext } from './ThemeContext'
+import { APP_SETTINGS_LOGO_COLUMN, imageColumnValueAsDataUrl } from './appSettingsLogo'
 import {
   DEFAULT_RESERVATION_LIMITS,
   HARD_MAX_RESERVATION_OCCURRENCES,
   HARD_MAX_RESERVATION_SPAN_WEEKS,
+  SFSU_DEFAULT_APP_NAME,
   SFSU_DEFAULT_FONT_FAMILY,
   SFSU_DEFAULT_THEME,
   themePresetByName,
@@ -13,28 +15,37 @@ import {
 } from './themeConfig'
 
 interface AppSettingsLimitFields {
+  sfsures_applogo?: string | null
   sfsures_maxreservationoccurrences?: number | null
   sfsures_maxreservationspanweeks?: number | null
 }
 
 const BASE_SETTINGS_SELECT = [
+  'sfsures_name',
   'sfsures_primarycolor',
   'sfsures_accentcolor',
   'sfsures_backgroundcolor',
-  'sfsures_logo',
   'sfsures_fontfamily',
-  'sfsures_borderradiuspx',
   'sfsures_selectedthemename',
   'sfsures_isactive',
 ]
+
+const LEGACY_SETTINGS_ROW_NAME = 'SFSU Reservation Settings'
 
 const LIMIT_SETTINGS_SELECT = [
   'sfsures_maxreservationoccurrences',
   'sfsures_maxreservationspanweeks',
 ]
 
-function themeText(value: string | undefined | null, fallback: string): string {
-  return value?.trim() || fallback
+const OPTIONAL_SETTINGS_SELECT = [APP_SETTINGS_LOGO_COLUMN, ...LIMIT_SETTINGS_SELECT]
+
+function appNameFromSettings(value: string | undefined | null): string {
+  const trimmed = value?.trim()
+  if (!trimmed || trimmed === LEGACY_SETTINGS_ROW_NAME) {
+    return SFSU_DEFAULT_APP_NAME
+  }
+
+  return trimmed
 }
 
 function restrictedWholeNumber(
@@ -62,13 +73,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
       try {
         result = await Sfsures_appsettingsesService.getAll({
-          select: [...BASE_SETTINGS_SELECT, ...LIMIT_SETTINGS_SELECT],
+          select: [...BASE_SETTINGS_SELECT, ...OPTIONAL_SETTINGS_SELECT],
           filter: 'sfsures_isactive eq true',
           top: 1,
         })
       } catch (err) {
         console.warn(
-          'App Settings limit columns could not be loaded — retrying with theme columns only:',
+          'Optional App Settings columns could not be loaded — retrying with base columns only:',
           err
         )
         result = await Sfsures_appsettingsesService.getAll({
@@ -87,15 +98,17 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
       const limitRow = row as typeof row & AppSettingsLimitFields
       const selectedPreset = themePresetByName(row.sfsures_selectedthemename)
+      const uploadedLogoUrl = imageColumnValueAsDataUrl(limitRow.sfsures_applogo)
 
       setTheme({
+        appName: appNameFromSettings(row.sfsures_name),
         primaryColor: selectedPreset.primaryColor,
         accentColor: selectedPreset.accentColor,
         backgroundColor: selectedPreset.backgroundColor,
         dateHeaderColor: selectedPreset.dateHeaderColor,
-        logoUrl: themeText(row.sfsures_logo, SFSU_DEFAULT_THEME.logoUrl),
+        logoUrl: uploadedLogoUrl ?? SFSU_DEFAULT_THEME.logoUrl,
         fontFamily: SFSU_DEFAULT_FONT_FAMILY,
-        borderRadius: row.sfsures_borderradiuspx ?? selectedPreset.borderRadius,
+        borderRadius: selectedPreset.borderRadius,
         selectedThemeName: selectedPreset.name,
       })
 

@@ -6,7 +6,7 @@
 import type { GetEntityMetadataOptions, EntityMetadata } from '@microsoft/power-apps/data/metadata/dataverse';
 import type { IGetOptions, IGetAllOptions } from '../models/CommonModels';
 import type { IOperationResult } from '@microsoft/power-apps/data';
-import type { Sfsures_appsettingsesBase, Sfsures_appsettingses } from '../models/Sfsures_appsettingsesModel';
+import type { Sfsures_appsettingsesBase, Sfsures_appsettingses, Sfsures_appsettingsesImageColumnName, Sfsures_appsettingsesUploadColumnName } from '../models/Sfsures_appsettingsesModel';
 import { dataSourcesInfo } from '../../../.power/schemas/appschemas/dataSourcesInfo';
 import { getClient } from '@microsoft/power-apps/data';
 
@@ -68,5 +68,37 @@ export class Sfsures_appsettingsesService {
         },
       },
     });
+  }
+
+  public static async upload(id: string, columnName: Sfsures_appsettingsesUploadColumnName, file: File, fileDisplayName?: string): Promise<IOperationResult<void>> {
+    const arrayBuffer = await file.arrayBuffer();
+    const data = new Uint8Array(arrayBuffer);
+    const result = await Sfsures_appsettingsesService.client.uploadFileToRecord(
+      Sfsures_appsettingsesService.dataSourceName,
+      id,
+      columnName,
+      fileDisplayName || file.name,
+      data,
+    );
+    return result;
+  }
+
+  public static async downloadImage(id: string, columnName: Sfsures_appsettingsesImageColumnName, fullSize: boolean = false): Promise<IOperationResult<Uint8Array>> {
+    const result = await Sfsures_appsettingsesService.client.downloadImageFromRecord(
+      Sfsures_appsettingsesService.dataSourceName,
+      id,
+      columnName,
+      fullSize,
+    );
+    return result;
+  }
+
+  public static async deleteFileOrImage(id: string, columnName: Sfsures_appsettingsesUploadColumnName): Promise<IOperationResult<void>> {
+    const result = await Sfsures_appsettingsesService.client.deleteFileOrImageFromRecord(
+      Sfsures_appsettingsesService.dataSourceName,
+      id,
+      columnName,
+    );
+    return result;
   }
 }

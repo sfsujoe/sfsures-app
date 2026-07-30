@@ -14,6 +14,8 @@ export interface CroppedResourcePhoto {
 
 interface ResourcePhotoCropperProps {
   imageUrl: string
+  mediaAlt?: string
+  outputFileName?: string
   onCancel: () => void
   onUsePhoto: (photo: CroppedResourcePhoto) => void
 }
@@ -45,7 +47,11 @@ function readBlobAsDataUrl(blob: Blob): Promise<string> {
   })
 }
 
-async function cropImage(imageUrl: string, crop: Area): Promise<CroppedResourcePhoto> {
+async function cropImage(
+  imageUrl: string,
+  crop: Area,
+  outputFileName: string
+): Promise<CroppedResourcePhoto> {
   const image = await loadImage(imageUrl)
   const canvas = document.createElement('canvas')
   const context = canvas.getContext('2d')
@@ -85,7 +91,7 @@ async function cropImage(imageUrl: string, crop: Area): Promise<CroppedResourceP
   })
 
   return {
-    file: new File([blob], 'resource-photo.jpg', { type: 'image/jpeg' }),
+    file: new File([blob], outputFileName, { type: 'image/jpeg' }),
     byteSize: blob.size,
     previewUrl: await readBlobAsDataUrl(blob),
   }
@@ -93,6 +99,8 @@ async function cropImage(imageUrl: string, crop: Area): Promise<CroppedResourceP
 
 export default function ResourcePhotoCropper({
   imageUrl,
+  mediaAlt = 'Selected image to crop',
+  outputFileName = 'resource-photo.jpg',
   onCancel,
   onUsePhoto,
 }: ResourcePhotoCropperProps) {
@@ -116,7 +124,7 @@ export default function ResourcePhotoCropper({
     setError('')
 
     try {
-      onUsePhoto(await cropImage(imageUrl, croppedAreaPixels))
+      onUsePhoto(await cropImage(imageUrl, croppedAreaPixels, outputFileName))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'The cropped image could not be prepared.')
     } finally {
@@ -137,7 +145,7 @@ export default function ResourcePhotoCropper({
           onZoomChange={setZoom}
           onMediaLoaded={() => setError('')}
           mediaProps={{
-            alt: 'Selected resource photo to crop',
+            alt: mediaAlt,
             onError: () =>
               setError('The selected image could not be displayed. Try a JPG or PNG file.'),
           }}

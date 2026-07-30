@@ -748,6 +748,35 @@
   gap: 0.375rem;
 }
 
+.appLogoEditor {
+  display: grid;
+  grid-template-columns: minmax(112px, 148px) minmax(12rem, 1fr);
+  align-items: center;
+  gap: 0.875rem;
+  border: 1px solid #e5e5e5;
+  border-radius: 8px;
+  background: #fbfbfb;
+  padding: 0.75rem;
+}
+
+.appLogoPreview {
+  display: block;
+  width: 100%;
+  max-width: 148px;
+  height: 88px;
+  border: 1px solid color-mix(in srgb, var(--sfsures-primary, #442C8B) 72%, white);
+  border-radius: 6px;
+  background: var(--sfsures-primary, #442C8B);
+  object-fit: contain;
+  padding: 0.5rem;
+}
+
+.appLogoActions {
+  min-width: 0;
+  display: grid;
+  gap: 0.375rem;
+}
+
 .resourcePhotoCropperPanel {
   display: grid;
   gap: 0.875rem;
@@ -1720,6 +1749,14 @@
 
   .fieldWide {
     grid-column: span 1;
+  }
+
+  .appLogoEditor {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .appLogoPreview {
+    max-width: none;
   }
 
   .numberWithCap {

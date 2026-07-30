@@ -1,10 +1,23 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type FormEvent,
+} from 'react'
 import { Sfsures_appsettingsesService } from '../generated/services/Sfsures_appsettingsesService'
 import type { Sfsures_appsettingses } from '../generated/models/Sfsures_appsettingsesModel'
+import {
+  APP_SETTINGS_LOGO_COLUMN,
+  imageColumnValueAsDataUrl,
+} from '../theme/appSettingsLogo'
 import {
   DEFAULT_RESERVATION_LIMITS,
   HARD_MAX_RESERVATION_OCCURRENCES,
   HARD_MAX_RESERVATION_SPAN_WEEKS,
+  SFSU_DEFAULT_APP_NAME,
   SFSU_DEFAULT_FONT_FAMILY,
   SFSU_DEFAULT_THEME,
   SFSU_THEME_PRESETS,
@@ -13,37 +26,53 @@ import {
 import { useTheme } from '../theme/ThemeContext'
 import styles from './AdminApp.module.css'
 
+const ResourcePhotoCropper = lazy(() => import('./ResourcePhotoCropper'))
+
 interface SettingsForm {
+  appName: string
   selectedThemeName: string
-  logoUrl: string
-  borderRadius: string
   maxOccurrences: string
   maxSpanWeeks: string
 }
 
 interface ParsedSettings {
-  logoUrl: string | null
-  borderRadius: number
+  appName: string
   maxOccurrences: number
   maxSpanWeeks: number
 }
 
+interface PendingLogo {
+  file: File
+  byteSize: number
+  previewUrl: string
+}
+
+interface LogoCropSource {
+  dataUrl: string
+}
+
+interface AppSettingsLogoFields {
+  sfsures_applogo?: string | null
+}
+
 const SETTINGS_SELECT = [
   'sfsures_appsettingsid',
-  'sfsures_logo',
-  'sfsures_borderradiuspx',
+  'sfsures_name',
   'sfsures_selectedthemename',
   'sfsures_isactive',
   'sfsures_maxreservationoccurrences',
   'sfsures_maxreservationspanweeks',
 ]
 
-const SETTINGS_ROW_NAME = 'SFSU Reservation Settings'
+const LEGACY_SETTINGS_ROW_NAME = 'SFSU Reservation Settings'
+const MAX_APP_NAME_LENGTH = 80
+const LOGO_ACCEPT = '.jpg,.jpeg,.png,.gif,.bmp,image/jpeg,image/png,image/gif,image/bmp'
+const LOGO_MAX_BYTES = 10 * 1024 * 1024
+const SUPPORTED_LOGO_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/bmp'])
 
 const DEFAULT_FORM: SettingsForm = {
+  appName: SFSU_DEFAULT_APP_NAME,
   selectedThemeName: SFSU_DEFAULT_THEME.selectedThemeName,
-  logoUrl: '',
-  borderRadius: String(SFSU_DEFAULT_THEME.borderRadius),
   maxOccurrences: String(DEFAULT_RESERVATION_LIMITS.maxOccurrences),
   maxSpanWeeks: String(DEFAULT_RESERVATION_LIMITS.maxSpanWeeks),
 }
@@ -65,6 +94,46 @@ function limitedNumber(value: number | undefined | null, fallback: number, hardM
   return Math.min(Math.max(Math.floor(value), 1), hardMax)
 }
 
+function formatBytes(bytes: number): string {
+  const megabytes = bytes / (1024 * 1024)
+  return `${megabytes.toFixed(megabytes >= 10 ? 0 : 1)} MB`
+}
+
+function isSupportedLogo(file: File): boolean {
+  if (SUPPORTED_LOGO_TYPES.has(file.type)) {
+    return true
+  }
+
+  return /\.(jpe?g|png|gif|bmp)$/i.test(file.name)
+}
+
+function readImageAsDataUrl(image: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result)
+        return
+      }
+
+      reject(new Error('The selected image could not be prepared.'))
+    }
+    reader.onerror = () => reject(new Error('The selected image could not be read.'))
+    reader.onabort = () => reject(new Error('Reading the selected image was canceled.'))
+    reader.readAsDataURL(image)
+  })
+}
+
+function appNameFromRow(value: string | undefined | null): string {
+  const trimmed = value?.trim()
+  if (!trimmed || trimmed === LEGACY_SETTINGS_ROW_NAME) {
+    return SFSU_DEFAULT_APP_NAME
+  }
+
+  return trimmed
+}
+
 function formFromRow(row: Sfsures_appsettingses | undefined): SettingsForm {
   if (!row) {
     return DEFAULT_FORM
@@ -73,9 +142,8 @@ function formFromRow(row: Sfsures_appsettingses | undefined): SettingsForm {
   const selectedPreset = themePresetByName(row.sfsures_selectedthemename)
 
   return {
+    appName: appNameFromRow(row.sfsures_name),
     selectedThemeName: selectedPreset.name,
-    logoUrl: row.sfsures_logo?.trim() || '',
-    borderRadius: String(row.sfsures_borderradiuspx ?? selectedPreset.borderRadius),
     maxOccurrences: String(
       limitedNumber(
         row.sfsures_maxreservationoccurrences,
@@ -93,15 +161,23 @@ function formFromRow(row: Sfsures_appsettingses | undefined): SettingsForm {
   }
 }
 
-function validateForm(form: SettingsForm): { error: string } | { values: ParsedSettings } {
-  const logoUrl = form.logoUrl.trim()
-  if (logoUrl && !/^https:\/\//i.test(logoUrl)) {
-    return { error: 'Logo URL must start with https://.' }
+function logoUrlFromRow(row: Sfsures_appsettingses | undefined, fallback: string): string {
+  if (!row) {
+    return fallback
   }
 
-  const borderRadius = wholeNumberFromInput(form.borderRadius)
-  if (borderRadius === null || borderRadius < 0 || borderRadius > 24) {
-    return { error: 'Border radius must be a whole number from 0 to 24.' }
+  const rowWithLogo = row as Sfsures_appsettingses & AppSettingsLogoFields
+  return imageColumnValueAsDataUrl(rowWithLogo.sfsures_applogo) ?? fallback
+}
+
+function validateForm(form: SettingsForm): { error: string } | { values: ParsedSettings } {
+  const appName = form.appName.trim()
+  if (!appName) {
+    return { error: 'App Name is required.' }
+  }
+
+  if (appName.length > MAX_APP_NAME_LENGTH) {
+    return { error: `App Name must be ${MAX_APP_NAME_LENGTH} characters or fewer.` }
   }
 
   const maxOccurrences = wholeNumberFromInput(form.maxOccurrences)
@@ -128,8 +204,7 @@ function validateForm(form: SettingsForm): { error: string } | { values: ParsedS
 
   return {
     values: {
-      logoUrl: logoUrl || null,
-      borderRadius,
+      appName,
       maxOccurrences,
       maxSpanWeeks,
     },
@@ -140,10 +215,15 @@ export function AppSettingsScreen() {
   const { reloadSettings } = useTheme()
   const [rowId, setRowId] = useState<string | null>(null)
   const [form, setForm] = useState<SettingsForm>(DEFAULT_FORM)
+  const [currentLogoUrl, setCurrentLogoUrl] = useState(SFSU_DEFAULT_THEME.logoUrl)
+  const [pendingLogo, setPendingLogo] = useState<PendingLogo | null>(null)
+  const [logoCropSource, setLogoCropSource] = useState<LogoCropSource | null>(null)
+  const [logoResetRequested, setLogoResetRequested] = useState(false)
   const [loadStatus, setLoadStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [status, setStatus] = useState('')
+  const logoInputRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -153,16 +233,35 @@ export function AppSettingsScreen() {
       setError('')
 
       try {
-        const result = await Sfsures_appsettingsesService.getAll({
-          select: SETTINGS_SELECT,
-          filter: 'sfsures_isactive eq true',
-          top: 1,
-        })
+        let result
+
+        try {
+          result = await Sfsures_appsettingsesService.getAll({
+            select: [...SETTINGS_SELECT, APP_SETTINGS_LOGO_COLUMN],
+            filter: 'sfsures_isactive eq true',
+            top: 1,
+          })
+        } catch (imageErr) {
+          console.warn(
+            'App Settings logo image column could not be loaded; using base settings:',
+            imageErr
+          )
+          result = await Sfsures_appsettingsesService.getAll({
+            select: SETTINGS_SELECT,
+            filter: 'sfsures_isactive eq true',
+            top: 1,
+          })
+        }
+
         const row = result.data?.[0]
 
         if (!cancelled) {
           setRowId(row?.sfsures_appsettingsid ?? null)
           setForm(formFromRow(row))
+          setCurrentLogoUrl(logoUrlFromRow(row, SFSU_DEFAULT_THEME.logoUrl))
+          setPendingLogo(null)
+          setLogoCropSource(null)
+          setLogoResetRequested(false)
           setLoadStatus('ready')
         }
       } catch (err) {
@@ -194,7 +293,6 @@ export function AppSettingsScreen() {
     setForm((current) => ({
       ...current,
       selectedThemeName: preset.name,
-      borderRadius: String(preset.borderRadius),
     }))
     setStatus('')
     setError('')
@@ -202,6 +300,52 @@ export function AppSettingsScreen() {
 
   function resetDefault() {
     setForm(DEFAULT_FORM)
+    setCurrentLogoUrl(SFSU_DEFAULT_THEME.logoUrl)
+    setPendingLogo(null)
+    setLogoCropSource(null)
+    setLogoResetRequested(true)
+    if (logoInputRef.current) {
+      logoInputRef.current.value = ''
+    }
+    setStatus('')
+    setError('')
+  }
+
+  function handleLogoButtonClick() {
+    logoInputRef.current?.click()
+  }
+
+  async function handleLogoFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+
+    if (!file) return
+
+    if (!isSupportedLogo(file)) {
+      setError('Upload a JPG, PNG, GIF, or BMP image.')
+      return
+    }
+
+    if (file.size > LOGO_MAX_BYTES) {
+      setError(`Logo is too large. The maximum size is ${formatBytes(LOGO_MAX_BYTES)}.`)
+      return
+    }
+
+    setError('')
+
+    try {
+      setLogoCropSource({ dataUrl: await readImageAsDataUrl(file) })
+    } catch (err) {
+      setLogoCropSource(null)
+      setError(err instanceof Error ? err.message : 'The selected image could not be read.')
+    }
+  }
+
+  function handleCroppedLogo(logo: PendingLogo) {
+    setPendingLogo(logo)
+    setCurrentLogoUrl(logo.previewUrl)
+    setLogoCropSource(null)
+    setLogoResetRequested(false)
     setStatus('')
     setError('')
   }
@@ -220,12 +364,11 @@ export function AppSettingsScreen() {
     const values = parsed.values
     const selectedPreset = themePresetByName(form.selectedThemeName)
     const payload = {
+      sfsures_name: values.appName,
       sfsures_primarycolor: selectedPreset.primaryColor,
       sfsures_accentcolor: selectedPreset.accentColor,
       sfsures_backgroundcolor: selectedPreset.backgroundColor,
-      sfsures_logo: values.logoUrl,
       sfsures_fontfamily: SFSU_DEFAULT_FONT_FAMILY,
-      sfsures_borderradiuspx: values.borderRadius,
       sfsures_isactive: true,
       sfsures_selectedthemename: selectedPreset.name,
       sfsures_maxreservationoccurrences: values.maxOccurrences,
@@ -235,6 +378,8 @@ export function AppSettingsScreen() {
     setSaving(true)
 
     try {
+      let activeRowId = rowId
+
       if (rowId) {
         await Sfsures_appsettingsesService.update(
           rowId,
@@ -243,16 +388,47 @@ export function AppSettingsScreen() {
       } else {
         const result = await Sfsures_appsettingsesService.create({
           ...payload,
-          sfsures_name: SETTINGS_ROW_NAME,
           statecode: 0,
           statuscode: 1,
         } as unknown as Parameters<typeof Sfsures_appsettingsesService.create>[0])
 
-        setRowId(result.data?.sfsures_appsettingsid ?? null)
+        activeRowId = result.data?.sfsures_appsettingsid ?? null
+        setRowId(activeRowId)
+      }
+
+      let logoUploaded = true
+      if (activeRowId && pendingLogo) {
+        try {
+          await Sfsures_appsettingsesService.upload(
+            activeRowId,
+            APP_SETTINGS_LOGO_COLUMN,
+            pendingLogo.file,
+            pendingLogo.file.name
+          )
+          setPendingLogo(null)
+        } catch (logoErr) {
+          logoUploaded = false
+          console.error('Upload app logo failed:', logoErr)
+        }
+      } else if (activeRowId && logoResetRequested) {
+        try {
+          await Sfsures_appsettingsesService.deleteFileOrImage(
+            activeRowId,
+            APP_SETTINGS_LOGO_COLUMN
+          )
+          setLogoResetRequested(false)
+        } catch (logoErr) {
+          logoUploaded = false
+          console.error('Reset app logo failed:', logoErr)
+        }
       }
 
       await reloadSettings()
-      setStatus('Settings saved.')
+      setStatus(
+        logoUploaded
+          ? 'Settings saved.'
+          : 'Settings saved, but the logo could not be updated. Confirm the App Logo image column exists and try again.'
+      )
     } catch (err) {
       console.error('App Settings admin save failed:', err)
       setError(err instanceof Error ? err.message : 'App Settings could not be saved.')
@@ -351,27 +527,89 @@ export function AppSettingsScreen() {
 
             <div className={styles.fieldGrid}>
               <label className={styles.fieldWide}>
-                <span>Logo URL</span>
+                <span>App Name</span>
                 <input
                   className={styles.input}
-                  type="url"
-                  placeholder="https://"
-                  value={form.logoUrl}
-                  onChange={(event) => updateField('logoUrl', event.target.value)}
+                  type="text"
+                  maxLength={MAX_APP_NAME_LENGTH}
+                  value={form.appName}
+                  onChange={(event) => updateField('appName', event.target.value)}
                 />
               </label>
-              <label className={styles.field}>
-                <span>Border radius</span>
-                <input
-                  className={styles.input}
-                  type="number"
-                  min="0"
-                  max="24"
-                  step="1"
-                  value={form.borderRadius}
-                  onChange={(event) => updateField('borderRadius', event.target.value)}
-                />
-              </label>
+              <div className={styles.fieldWide}>
+                <span>App Logo</span>
+                <div className={styles.appLogoEditor}>
+                  <img
+                    className={styles.appLogoPreview}
+                    src={currentLogoUrl}
+                    alt="Current app logo"
+                    onError={() => {
+                      if (currentLogoUrl !== SFSU_DEFAULT_THEME.logoUrl) {
+                        setCurrentLogoUrl(SFSU_DEFAULT_THEME.logoUrl)
+                      }
+                    }}
+                  />
+
+                  <div className={styles.appLogoActions}>
+                    <button
+                      type="button"
+                      className={styles.secondaryButton}
+                      onClick={handleLogoButtonClick}
+                    >
+                      Upload New Logo
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.secondaryButton}
+                      onClick={() => {
+                        setCurrentLogoUrl(SFSU_DEFAULT_THEME.logoUrl)
+                        setPendingLogo(null)
+                        setLogoCropSource(null)
+                        setLogoResetRequested(true)
+                        setStatus('')
+                      }}
+                    >
+                      Use Default Logo
+                    </button>
+                    <p className={styles.fieldHint}>
+                      JPG, PNG, GIF, or BMP. Max {formatBytes(LOGO_MAX_BYTES)}.
+                    </p>
+                  </div>
+
+                  <input
+                    ref={logoInputRef}
+                    type="file"
+                    accept={LOGO_ACCEPT}
+                    className={styles.srOnly}
+                    onChange={handleLogoFileChange}
+                  />
+                </div>
+
+                {pendingLogo && (
+                  <p className={styles.fieldHint}>
+                    Cropped logo ready ({formatBytes(pendingLogo.byteSize)}). It will upload when
+                    you save settings.
+                  </p>
+                )}
+
+                {logoCropSource && (
+                  <Suspense
+                    fallback={
+                      <div className={styles.inlineLoading} role="status">
+                        Loading cropper...
+                      </div>
+                    }
+                  >
+                    <ResourcePhotoCropper
+                      imageUrl={logoCropSource.dataUrl}
+                      mediaAlt="Selected app logo to crop"
+                      outputFileName="app-logo.jpg"
+                      onCancel={() => setLogoCropSource(null)}
+                      onUsePhoto={handleCroppedLogo}
+                    />
+                  </Suspense>
+                )}
+              </div>
             </div>
           </section>
 

@@ -1772,7 +1772,7 @@ export function CalendarScreen({ onOpenReports, onOpenAdmin }: CalendarScreenPro
               <span className={styles.logoFallback}>Logo unavailable</span>
             )}
           </a>
-          <h1 className={styles.headerTitle}>SFSU Resource Reservations</h1>
+          <h1 className={styles.headerTitle}>{theme.appName}</h1>
           <div className={styles.profileSlot}>
             <div className={styles.helpMenuWrap} ref={helpMenuRef}>
               <button

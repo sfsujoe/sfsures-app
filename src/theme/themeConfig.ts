@@ -5,6 +5,7 @@ export const SFSU_DEFAULT_FONT_FAMILY =
 
 export const HARD_MAX_RESERVATION_OCCURRENCES = 50
 export const HARD_MAX_RESERVATION_SPAN_WEEKS = 18
+export const SFSU_DEFAULT_APP_NAME = 'SFSU Resource Reservations'
 
 export interface ReservationLimits {
   maxOccurrences: number
@@ -12,6 +13,7 @@ export interface ReservationLimits {
 }
 
 export interface AppTheme {
+  appName: string
   primaryColor: string
   accentColor: string
   backgroundColor: string
@@ -85,6 +87,7 @@ export function themePresetByName(name: string | undefined | null): AppThemePres
 }
 
 export const SFSU_DEFAULT_THEME: AppTheme = {
+  appName: SFSU_DEFAULT_APP_NAME,
   primaryColor: SFSU_DEFAULT_THEME_PRESET.primaryColor,
   accentColor: SFSU_DEFAULT_THEME_PRESET.accentColor,
   backgroundColor: SFSU_DEFAULT_THEME_PRESET.backgroundColor,

@@ -74,8 +74,10 @@
   color: #ffffff;
   margin: 0;
   letter-spacing: 0;
+  line-height: 1.15;
   text-align: center;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .profileSlot {
