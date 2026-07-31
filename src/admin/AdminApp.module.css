@@ -966,6 +966,10 @@
   width: min(100%, 46rem);
 }
 
+.reservableHoursModal {
+  width: min(100%, 52rem);
+}
+
 .resourcePhotoPreviewModal {
   width: min(96vw, 72rem);
   height: min(94dvh, 54rem);
@@ -1484,6 +1488,20 @@
   margin-bottom: 1rem;
 }
 
+.detailActionStack {
+  display: grid;
+}
+
+.detailActionStack .detailActions:first-child {
+  border-bottom: 0;
+  padding-bottom: 0.625rem;
+  margin-bottom: 0;
+}
+
+.detailActionsSecondary {
+  padding-top: 0;
+}
+
 .groupEditor {
   display: grid;
   gap: 0.75rem;
@@ -1579,6 +1597,66 @@
 .attributeValueEditor h3 { margin: 0; font-size: 0.9rem; }
 .attributeValueGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem; }
 .attributeSourceNote { display: block; margin-top: 0.1rem; color: #666666; font-size: 0.75rem; font-weight: 600; }
+
+.reservableHoursOptions {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.reservableWindowEditor {
+  display: grid;
+  gap: 0.75rem;
+  border-top: 1px solid #ececec;
+  padding-top: 1rem;
+}
+
+.reservableWindowToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.reservableWindowToolbar h3 {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.reservableWindowList {
+  display: grid;
+  gap: 0.625rem;
+}
+
+.reservableWindowRow {
+  display: grid;
+  grid-template-columns: 2rem minmax(0, 1fr) auto;
+  gap: 0.625rem;
+  align-items: end;
+  border: 1px solid #dddddd;
+  border-radius: 6px;
+  background: #ffffff;
+  padding: 0.75rem;
+}
+
+.reservableWindowNumber {
+  min-width: 2rem;
+  min-height: 38px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 6px;
+  background: #f3f3f3;
+  color: #555555;
+  font-size: 0.8125rem;
+  font-weight: 800;
+}
+
+.reservableWindowFields {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(8rem, 1.35fr) minmax(7rem, 1fr) minmax(7rem, 1fr);
+  gap: 0.625rem;
+  align-items: end;
+}
 
 .srOnly {
   position: absolute;
@@ -1836,8 +1914,18 @@
   .groupActionCards,
   .permissionRow,
   .attributeDefinitionForm,
-  .customAttributeList {
+  .customAttributeList,
+  .reservableWindowRow,
+  .reservableWindowFields {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .reservableWindowRow {
+    align-items: stretch;
+  }
+
+  .reservableWindowNumber {
+    width: 2rem;
   }
 
   .groupMemberCheckItem .statusPill {

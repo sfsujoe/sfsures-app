@@ -43,6 +43,7 @@ import dayGridPlugin from '@fullcalendar/daygrid'
 import timeGridPlugin from '@fullcalendar/timegrid'
 import interactionPlugin from '@fullcalendar/interaction'
 import type { DateSelectArg, EventClickArg, DatesSetArg, EventInput } from '@fullcalendar/core'
+import type { DateClickArg } from '@fullcalendar/interaction'
 
 import { Sfsures_reservationoccurrencesService } from '../generated/services/Sfsures_reservationoccurrencesService'
 import { Sfsures_reservationseriesesService } from '../generated/services/Sfsures_reservationseriesesService'
@@ -50,11 +51,20 @@ import { Sfsures_blackoutwindowsService } from '../generated/services/Sfsures_bl
 import { Sfsures_appusersService } from '../generated/services/Sfsures_appusersService'
 import { Sfsures_resourcesService } from '../generated/services/Sfsures_resourcesService'
 import { Sfsures_resourcetypesService } from '../generated/services/Sfsures_resourcetypesService'
+import { Sfsures_reservablehourwindowsService } from '../generated/services/Sfsures_reservablehourwindowsService'
 import { Sfsures_resourceattributevaluesService } from '../generated/services/Sfsures_resourceattributevaluesService'
 import { Sfsures_reservationattributevaluesService } from '../generated/services/Sfsures_reservationattributevaluesService'
 import { Sfsures_attributedefinitionsService } from '../generated/services/Sfsures_attributedefinitionsService'
 import { Office365UsersService } from '../generated/services/Office365UsersService'
-import type { Sfsures_resourcessfsures_calendarcolor } from '../generated/models/Sfsures_resourcesModel'
+import type {
+  Sfsures_resourcessfsures_calendarcolor,
+  Sfsures_resourcessfsures_reservablehoursmode,
+} from '../generated/models/Sfsures_resourcesModel'
+import type { Sfsures_resourcetypessfsures_reservablehoursmode } from '../generated/models/Sfsures_resourcetypesModel'
+import type {
+  Sfsures_reservablehourwindows,
+  Sfsures_reservablehourwindowssfsures_dayofweek,
+} from '../generated/models/Sfsures_reservablehourwindowsModel'
 import type { Sfsures_resourceattributevalues } from '../generated/models/Sfsures_resourceattributevaluesModel'
 import type { Sfsures_reservationattributevalues } from '../generated/models/Sfsures_reservationattributevaluesModel'
 import type { Sfsures_attributedefinitions } from '../generated/models/Sfsures_attributedefinitionsModel'
@@ -105,6 +115,7 @@ interface ResourceRow {
   sfsures_description?: string
   sfsures_location?: string
   sfsures_calendarcolor?: Sfsures_resourcessfsures_calendarcolor
+  sfsures_reservablehoursmode?: Sfsures_resourcessfsures_reservablehoursmode
   sfsures_resourcephoto?: string
   _sfsures_resourcetype_value?: string
 }
@@ -112,6 +123,7 @@ interface ResourceRow {
 interface ResourceTypeOption {
   id: string
   name: string
+  reservableHoursMode: Sfsures_resourcetypessfsures_reservablehoursmode
 }
 
 interface CalendarResourceOption {
@@ -119,9 +131,20 @@ interface CalendarResourceOption {
   name: string
   resourceTypeId: string
   resourceTypeName: string
+  reservableHoursMode: Sfsures_resourcessfsures_reservablehoursmode
   location: string
   description: string
   photoThumbnailUrl: string | null
+}
+
+interface ReservableHourWindowOption {
+  id: string
+  resourceId: string
+  resourceTypeId: string
+  dayOfWeek: Sfsures_reservablehourwindowssfsures_dayofweek
+  startMinute: number
+  endMinute: number
+  displayOrder: number
 }
 
 interface ReservationOwnerDetails {
@@ -160,7 +183,25 @@ type DeleteConfirmMode = 'occurrence' | 'series'
 const RECORD_STATUS_ACTIVE = 997330000
 const RECORD_STATUS_CANCELLED = 997330001
 const ATTRIBUTE_APPLIES_TO_RESOURCE = 997330000
+const RESOURCE_TYPE_RESERVABLE_ANY_TIME = 997330000
+const RESOURCE_TYPE_RESERVABLE_MF_8_5 = 997330001
+const RESOURCE_TYPE_RESERVABLE_CUSTOM = 997330002
+const RESOURCE_RESERVABLE_INHERIT = 997330000
+const RESOURCE_RESERVABLE_ANY_TIME = 997330001
+const RESOURCE_RESERVABLE_MF_8_5 = 997330002
+const RESOURCE_RESERVABLE_CUSTOM = 997330003
+const RESERVABLE_WINDOW_STATUS_ACTIVE = 997330000
 const RESOURCE_PHOTO_COLUMN = 'sfsures_resourcephoto'
+
+const DAY_OF_WEEK_BY_JS_DAY: Sfsures_reservablehourwindowssfsures_dayofweek[] = [
+  997330000,
+  997330001,
+  997330002,
+  997330003,
+  997330004,
+  997330005,
+  997330006,
+]
 
 const RESERVATION_ATTRIBUTE_VALUE_SELECT = [
   'sfsures_reservationattributevalueid',
@@ -475,6 +516,204 @@ function dateInputFromIso(value: string | undefined | null): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
 }
 
+function sameLocalDate(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  )
+}
+
+function startOfLocalDay(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate())
+}
+
+function addLocalDays(date: Date, days: number): Date {
+  const next = new Date(date)
+  next.setDate(next.getDate() + days)
+  return next
+}
+
+function localDateKey(date: Date): string {
+  const pad = (value: number) => String(value).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+}
+
+function minutesSinceLocalMidnight(date: Date): number {
+  return date.getHours() * 60 + date.getMinutes()
+}
+
+function dateAtLocalMinute(day: Date, minute: number): Date {
+  const date = startOfLocalDay(day)
+  date.setMinutes(minute)
+  return date
+}
+
+function effectiveReservableMode(
+  resource: CalendarResourceOption,
+  resourceType: ResourceTypeOption
+): 'anyTime' | 'mondayFriday8_5' | 'custom' {
+  if (resource.reservableHoursMode === RESOURCE_RESERVABLE_ANY_TIME) return 'anyTime'
+  if (resource.reservableHoursMode === RESOURCE_RESERVABLE_MF_8_5) return 'mondayFriday8_5'
+  if (resource.reservableHoursMode === RESOURCE_RESERVABLE_CUSTOM) return 'custom'
+  if (resourceType.reservableHoursMode === RESOURCE_TYPE_RESERVABLE_MF_8_5) {
+    return 'mondayFriday8_5'
+  }
+  if (resourceType.reservableHoursMode === RESOURCE_TYPE_RESERVABLE_CUSTOM) {
+    return 'custom'
+  }
+  return 'anyTime'
+}
+
+function effectiveResourceTypeReservableMode(
+  resourceType: ResourceTypeOption
+): 'anyTime' | 'mondayFriday8_5' | 'custom' {
+  if (resourceType.reservableHoursMode === RESOURCE_TYPE_RESERVABLE_MF_8_5) {
+    return 'mondayFriday8_5'
+  }
+  if (resourceType.reservableHoursMode === RESOURCE_TYPE_RESERVABLE_CUSTOM) {
+    return 'custom'
+  }
+  return 'anyTime'
+}
+
+function effectiveReservableWindows(args: {
+  resource: CalendarResourceOption
+  resourceType: ResourceTypeOption
+  windows: ReservableHourWindowOption[]
+}): ReservableHourWindowOption[] {
+  const mode = effectiveReservableMode(args.resource, args.resourceType)
+
+  if (mode === 'anyTime') return []
+
+  if (mode === 'mondayFriday8_5') {
+    return DAY_OF_WEEK_BY_JS_DAY.slice(1, 6).map((dayOfWeek, index) => ({
+      id: `preset-${dayOfWeek}`,
+      resourceId: '',
+      resourceTypeId: args.resourceType.id,
+      dayOfWeek,
+      startMinute: 8 * 60,
+      endMinute: 17 * 60,
+      displayOrder: (index + 1) * 10,
+    }))
+  }
+
+  const resourceCustomWindows = args.windows.filter(
+    (window) => window.resourceId === args.resource.id
+  )
+  if (args.resource.reservableHoursMode === RESOURCE_RESERVABLE_CUSTOM) {
+    return resourceCustomWindows
+  }
+
+  return args.windows.filter((window) => window.resourceTypeId === args.resourceType.id)
+}
+
+function effectiveResourceTypeReservableWindows(
+  resourceType: ResourceTypeOption,
+  windows: ReservableHourWindowOption[]
+): ReservableHourWindowOption[] {
+  const mode = effectiveResourceTypeReservableMode(resourceType)
+
+  if (mode === 'anyTime') return []
+
+  if (mode === 'mondayFriday8_5') {
+    return DAY_OF_WEEK_BY_JS_DAY.slice(1, 6).map((dayOfWeek, index) => ({
+      id: `preset-${dayOfWeek}`,
+      resourceId: '',
+      resourceTypeId: resourceType.id,
+      dayOfWeek,
+      startMinute: 8 * 60,
+      endMinute: 17 * 60,
+      displayOrder: (index + 1) * 10,
+    }))
+  }
+
+  return windows.filter(
+    (window) => window.resourceTypeId === resourceType.id && !window.resourceId
+  )
+}
+
+function dateRangeWithinReservableHours(args: {
+  start: Date
+  end: Date
+  windows: ReservableHourWindowOption[]
+}): boolean {
+  if (!sameLocalDate(args.start, args.end)) return false
+
+  const dayOfWeek = DAY_OF_WEEK_BY_JS_DAY[args.start.getDay()]
+  const startMinute = minutesSinceLocalMidnight(args.start)
+  const endMinute = minutesSinceLocalMidnight(args.end)
+
+  return args.windows.some(
+    (window) =>
+      window.dayOfWeek === dayOfWeek &&
+      startMinute >= window.startMinute &&
+      endMinute <= window.endMinute
+  )
+}
+
+function buildNonReservableBackgroundEvents(args: {
+  scopeId: string
+  resourceId: string
+  resourceTypeId: string
+  reservableWindows: ReservableHourWindowOption[]
+  rangeStart: Date
+  rangeEnd: Date
+}): EventInput[] {
+  const events: EventInput[] = []
+
+  for (
+    let day = startOfLocalDay(args.rangeStart);
+    day < args.rangeEnd;
+    day = addLocalDays(day, 1)
+  ) {
+    const dayStart = startOfLocalDay(day)
+    const dayOfWeek = DAY_OF_WEEK_BY_JS_DAY[day.getDay()]
+    const dayWindows = args.reservableWindows
+      .filter(
+        (window) =>
+          window.dayOfWeek === dayOfWeek &&
+          window.startMinute < window.endMinute
+      )
+      .sort(
+        (a, b) =>
+          a.startMinute - b.startMinute ||
+          a.endMinute - b.endMinute ||
+          a.displayOrder - b.displayOrder
+      )
+
+    let cursorMinute = 0
+    const addBackground = (startMinute: number, endMinute: number, index: number) => {
+      if (startMinute >= endMinute) return
+      const start = dateAtLocalMinute(dayStart, startMinute)
+      const end = dateAtLocalMinute(dayStart, endMinute)
+      if (end <= args.rangeStart || start >= args.rangeEnd) return
+
+      events.push({
+        id: `non-reservable-${args.scopeId}-${localDateKey(dayStart)}-${index}`,
+        title: 'Not reservable',
+        start: start < args.rangeStart ? args.rangeStart : start,
+        end: end > args.rangeEnd ? args.rangeEnd : end,
+        display: 'background',
+        classNames: ['nonReservableBackground'],
+        extendedProps: {
+          type: 'nonReservable',
+          resourceId: args.resourceId,
+          resourceTypeId: args.resourceTypeId,
+        },
+      })
+    }
+
+    dayWindows.forEach((window, index) => {
+      addBackground(cursorMinute, window.startMinute, index)
+      cursorMinute = Math.max(cursorMinute, window.endMinute)
+    })
+    addBackground(cursorMinute, 24 * 60, dayWindows.length)
+  }
+
+  return events
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -492,6 +731,7 @@ export function CalendarScreen({ onOpenReports, onOpenAdmin }: CalendarScreenPro
   const [events, setEvents] = useState<EventInput[]>([])
   const [resourceTypeOptions, setResourceTypeOptions] = useState<ResourceTypeOption[]>([])
   const [viewResources, setViewResources] = useState<CalendarResourceOption[]>([])
+  const [reservableHourWindows, setReservableHourWindows] = useState<ReservableHourWindowOption[]>([])
   const [selectedResourceTypeId, setSelectedResourceTypeId] = useState('')
   const [viewResourceId, setViewResourceId] = useState('')
   const [selectedViewResource, setSelectedViewResource] = useState<CalendarResourceOption | null>(null)
@@ -505,6 +745,12 @@ export function CalendarScreen({ onOpenReports, onOpenAdmin }: CalendarScreenPro
   >('loading')
   const [loadStatus, setLoadStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [errorMessage, setErrorMessage] = useState('')
+  const [nonReservableMessageOpen, setNonReservableMessageOpen] = useState(false)
+  const [calendarViewType, setCalendarViewType] = useState('timeGridWeek')
+  const [calendarVisibleRange, setCalendarVisibleRange] = useState<{
+    start: Date
+    end: Date
+  } | null>(null)
   const [selectedEvent, setSelectedEvent] = useState<EventInput | null>(null)
   const [editingReservation, setEditingReservation] = useState<
     { start: Date; end: Date; reservation: EditableReservation } | null
@@ -542,6 +788,8 @@ export function CalendarScreen({ onOpenReports, onOpenAdmin }: CalendarScreenPro
   const resourcePhotoPreviewRef = useRef<HTMLDivElement>(null)
   const resourcePhotoPreviewRequestIdRef = useRef(0)
   useFocusTrap(resourcePhotoPreviewRef, !!resourcePhotoPreviewResource)
+  const nonReservableInfoRef = useRef<HTMLDivElement>(null)
+  useFocusTrap(nonReservableInfoRef, nonReservableMessageOpen)
   const helpMenuRef = useRef<HTMLDivElement>(null)
 
   // Track the loaded date range so we don't re-fetch unnecessarily.
@@ -573,13 +821,92 @@ export function CalendarScreen({ onOpenReports, onOpenAdmin }: CalendarScreenPro
         : ownerResultMatches
           ? ownerLookupResult.status
           : 'loading'
-  const visibleEvents = useMemo(
-    () =>
-      selectedResourceTypeId
-        ? events.filter((event) => event.extendedProps?.resourceTypeId === selectedResourceTypeId)
-        : events,
-    [events, selectedResourceTypeId]
+  const selectedFilterResource = useMemo(
+    () => viewResources.find((resource) => resource.id === viewResourceId) ?? null,
+    [viewResourceId, viewResources]
   )
+  const selectedFilterResourceType = useMemo(
+    () =>
+      resourceTypeOptions.find((resourceType) =>
+        selectedFilterResource
+          ? resourceType.id === selectedFilterResource.resourceTypeId
+          : resourceType.id === selectedResourceTypeId
+      ) ?? null,
+    [resourceTypeOptions, selectedFilterResource, selectedResourceTypeId]
+  )
+  const selectedReservableScope = useMemo(() => {
+    if (selectedFilterResource && selectedFilterResourceType) {
+      return {
+        scopeId: selectedFilterResource.id,
+        label: selectedFilterResource.name,
+        resourceId: selectedFilterResource.id,
+        resourceTypeId: selectedFilterResource.resourceTypeId,
+        mode: effectiveReservableMode(selectedFilterResource, selectedFilterResourceType),
+        windows: effectiveReservableWindows({
+          resource: selectedFilterResource,
+          resourceType: selectedFilterResourceType,
+          windows: reservableHourWindows,
+        }),
+      }
+    }
+
+    if (selectedResourceTypeId && selectedFilterResourceType) {
+      return {
+        scopeId: selectedFilterResourceType.id,
+        label: selectedFilterResourceType.name,
+        resourceId: '',
+        resourceTypeId: selectedFilterResourceType.id,
+        mode: effectiveResourceTypeReservableMode(selectedFilterResourceType),
+        windows: effectiveResourceTypeReservableWindows(
+          selectedFilterResourceType,
+          reservableHourWindows
+        ),
+      }
+    }
+
+    return null
+  }, [
+    reservableHourWindows,
+    selectedFilterResource,
+    selectedFilterResourceType,
+    selectedResourceTypeId,
+  ])
+  const nonReservableBackgroundEvents = useMemo(() => {
+    if (
+      !selectedReservableScope ||
+      !calendarVisibleRange ||
+      calendarViewType === 'dayGridMonth' ||
+      selectedReservableScope.mode === 'anyTime'
+    ) {
+      return []
+    }
+
+    return buildNonReservableBackgroundEvents({
+      scopeId: selectedReservableScope.scopeId,
+      resourceId: selectedReservableScope.resourceId,
+      resourceTypeId: selectedReservableScope.resourceTypeId,
+      reservableWindows: selectedReservableScope.windows,
+      rangeStart: calendarVisibleRange.start,
+      rangeEnd: calendarVisibleRange.end,
+    })
+  }, [
+    calendarViewType,
+    calendarVisibleRange,
+    selectedReservableScope,
+  ])
+  const visibleEvents = useMemo(() => {
+    const filteredEvents = events.filter((event) => {
+      if (selectedResourceTypeId && event.extendedProps?.resourceTypeId !== selectedResourceTypeId) {
+        return false
+      }
+      if (viewResourceId && event.extendedProps?.resourceId !== viewResourceId) {
+        return false
+      }
+      return true
+    })
+
+    return [...filteredEvents, ...nonReservableBackgroundEvents]
+  }, [events, nonReservableBackgroundEvents, selectedResourceTypeId, viewResourceId])
   const filteredViewResources = useMemo(
     () =>
       selectedResourceTypeId
@@ -969,13 +1296,18 @@ export function CalendarScreen({ onOpenReports, onOpenAdmin }: CalendarScreenPro
 
       try {
         if (!currentUser) throw new Error('User identity is not available.')
-        const [permittedResourceTypeIds, resourceTypeResult, resourceResult] = await Promise.all([
+        const [permittedResourceTypeIds, resourceTypeResult, resourceResult, windowResult] = await Promise.all([
           loadPermittedResourceTypeIds(
             currentUser.groups,
             'view'
           ),
           Sfsures_resourcetypesService.getAll({
-            select: ['sfsures_resourcetypeid', 'sfsures_name', 'sfsures_status'],
+            select: [
+              'sfsures_resourcetypeid',
+              'sfsures_name',
+              'sfsures_status',
+              'sfsures_reservablehoursmode',
+            ],
             filter: 'sfsures_status eq 997330000',
             orderBy: ['sfsures_name asc'],
             top: 500,
@@ -987,12 +1319,28 @@ export function CalendarScreen({ onOpenReports, onOpenAdmin }: CalendarScreenPro
               'sfsures_description',
               'sfsures_location',
               'sfsures_calendarcolor',
+              'sfsures_reservablehoursmode',
               'sfsures_resourcephoto',
               '_sfsures_resourcetype_value',
             ],
             filter: `sfsures_recordstatus eq ${RECORD_STATUS_ACTIVE}`,
             orderBy: ['sfsures_name asc'],
             top: 500,
+          }),
+          Sfsures_reservablehourwindowsService.getAll({
+            select: [
+              'sfsures_reservablehourwindowid',
+              '_sfsures_resource_value',
+              '_sfsures_resourcetype_value',
+              'sfsures_dayofweek',
+              'sfsures_startminute',
+              'sfsures_endminute',
+              'sfsures_displayorder',
+              'sfsures_recordstatus',
+            ],
+            filter: `statecode eq 0 and sfsures_recordstatus eq ${RESERVABLE_WINDOW_STATUS_ACTIVE}`,
+            orderBy: ['sfsures_dayofweek asc', 'sfsures_startminute asc', 'sfsures_displayorder asc'],
+            top: 1000,
           }),
         ])
         const activePermittedTypeIds = new Set(
@@ -1018,6 +1366,8 @@ export function CalendarScreen({ onOpenReports, onOpenAdmin }: CalendarScreenPro
           .map((resourceType) => ({
             id: resourceType.sfsures_resourcetypeid,
             name: resourceType.sfsures_name,
+            reservableHoursMode:
+              resourceType.sfsures_reservablehoursmode ?? RESOURCE_TYPE_RESERVABLE_ANY_TIME,
           }))
           .filter(
             (option): option is ResourceTypeOption =>
@@ -1045,6 +1395,8 @@ export function CalendarScreen({ onOpenReports, onOpenAdmin }: CalendarScreenPro
               resourceTypeName:
                 resourceTypesById.get(resource._sfsures_resourcetype_value ?? '') ??
                 'Resource Type unavailable',
+              reservableHoursMode:
+                resource.sfsures_reservablehoursmode ?? RESOURCE_RESERVABLE_INHERIT,
               location: resource.sfsures_location ?? '',
               description: resource.sfsures_description ?? '',
               photoThumbnailUrl: resourcePhotoThumbnailSrc(resource.sfsures_resourcephoto),
@@ -1054,7 +1406,43 @@ export function CalendarScreen({ onOpenReports, onOpenAdmin }: CalendarScreenPro
               `${a.resourceTypeName}-${a.name}`.localeCompare(`${b.resourceTypeName}-${b.name}`)
             )
         )
-        setViewResourceId('')
+        const permittedResourceIdsForWindows = new Set(
+          permittedResources
+            .map((resource) => resource.sfsures_resourceid)
+            .filter((id): id is string => typeof id === 'string' && id.length > 0)
+        )
+        setReservableHourWindows(
+          ((windowResult.data ?? []) as Sfsures_reservablehourwindows[])
+            .map((window) => ({
+              id: window.sfsures_reservablehourwindowid,
+              resourceId: window._sfsures_resource_value ?? '',
+              resourceTypeId: window._sfsures_resourcetype_value ?? '',
+              dayOfWeek: window.sfsures_dayofweek ?? 997330001,
+              startMinute: window.sfsures_startminute,
+              endMinute: window.sfsures_endminute,
+              displayOrder: window.sfsures_displayorder ?? 0,
+            }))
+            .filter(
+              (window): window is ReservableHourWindowOption =>
+                typeof window.id === 'string' &&
+                window.id.length > 0 &&
+                Number.isFinite(window.startMinute) &&
+                Number.isFinite(window.endMinute) &&
+                (permittedResourceIdsForWindows.has(window.resourceId) ||
+                  activePermittedTypeIds.has(window.resourceTypeId))
+            )
+            .sort(
+              (a, b) =>
+                a.dayOfWeek - b.dayOfWeek ||
+                a.startMinute - b.startMinute ||
+                a.displayOrder - b.displayOrder
+            )
+        )
+        setViewResourceId((current) =>
+          current && permittedResources.some((resource) => resource.sfsures_resourceid === current)
+            ? current
+            : ''
+        )
         const permittedResourceIds = permittedResources
           .map((resource) => resource.sfsures_resourceid)
           .filter((id): id is string => !!id)
@@ -1172,6 +1560,8 @@ export function CalendarScreen({ onOpenReports, onOpenAdmin }: CalendarScreenPro
   // Re-fetch when the user navigates outside the loaded range.
   const handleDatesSet = useCallback(
     (arg: DatesSetArg) => {
+      setCalendarViewType(arg.view.type)
+      setCalendarVisibleRange({ start: arg.start, end: arg.end })
       const loaded = loadedRangeRef.current
       if (!loaded) return
       if (arg.start < loaded.start || arg.end > loaded.end) {
@@ -1301,7 +1691,6 @@ export function CalendarScreen({ onOpenReports, onOpenAdmin }: CalendarScreenPro
 
   const openResourceInfo = useCallback(
     (resourceId: string) => {
-      setViewResourceId(resourceId)
       const resource = viewResources.find((item) => item.id === resourceId) ?? null
 
       if (!resource) {
@@ -1315,6 +1704,21 @@ export function CalendarScreen({ onOpenReports, onOpenAdmin }: CalendarScreenPro
     [closeResourceInfo, loadResourceInfoDetails, viewResources]
   )
 
+  const handleViewResourceChange = useCallback(
+    (resourceId: string) => {
+      setViewResourceId(resourceId)
+      setNonReservableMessageOpen(false)
+      const resource = viewResources.find((item) => item.id === resourceId) ?? null
+      if (resource) {
+        setSelectedResourceTypeId(resource.resourceTypeId)
+      }
+      if (!resourceId) {
+        closeResourceInfo()
+      }
+    },
+    [closeResourceInfo, viewResources]
+  )
+
   const reserveSelectedViewResource = useCallback(() => {
     if (!selectedViewResource) return
 
@@ -1322,6 +1726,33 @@ export function CalendarScreen({ onOpenReports, onOpenAdmin }: CalendarScreenPro
     setBookingSlot(nextHourSlot())
     closeResourceInfo()
   }, [closeResourceInfo, selectedViewResource])
+
+  const showResourceAvailabilityOnCalendar = useCallback(
+    (args: { resourceId: string; resourceTypeId: string; start: Date }) => {
+      setSelectedResourceTypeId(args.resourceTypeId)
+      setViewResourceId(args.resourceId)
+      setSelectedViewResource(null)
+      setResourceInfoDetails({
+        status: 'idle',
+        resourceAttributes: [],
+      })
+      setBookingResourceContext(null)
+      setBookingSlot(null)
+      setEditingReservation(null)
+      setEditingSeries(null)
+      setNonReservableMessageOpen(false)
+
+      const calendarApi = calendarRef.current?.getApi()
+      if (!calendarApi) return
+
+      if (calendarApi.view.type === 'dayGridMonth') {
+        calendarApi.changeView('timeGridWeek', args.start)
+      } else {
+        calendarApi.gotoDate(args.start)
+      }
+    },
+    []
+  )
 
   const openResourcePhotoPreview = useCallback(async (resource: CalendarResourceOption) => {
     if (!resource.photoThumbnailUrl) return
@@ -1402,6 +1833,11 @@ export function CalendarScreen({ onOpenReports, onOpenAdmin }: CalendarScreenPro
   // ---------------------------------------------------------------------------
 
   const handleEventClick = useCallback((arg: EventClickArg) => {
+    if (arg.event.extendedProps.type === 'nonReservable') {
+      setNonReservableMessageOpen(true)
+      return
+    }
+
     setDeleteConfirmMode(null)
     setDeletingReservation(false)
     setLoadingSeriesEdit(false)
@@ -1710,12 +2146,54 @@ export function CalendarScreen({ onOpenReports, onOpenAdmin }: CalendarScreenPro
     selectedEvent,
   ])
 
+  const selectedRangeIsOutsideReservableHours = useCallback(
+    (start: Date, end: Date) => {
+      if (
+        !selectedReservableScope ||
+        calendarViewType === 'dayGridMonth' ||
+        selectedReservableScope.mode === 'anyTime'
+      ) {
+        return false
+      }
+
+      return !dateRangeWithinReservableHours({
+        start,
+        end,
+        windows: selectedReservableScope.windows,
+      })
+    },
+    [
+      calendarViewType,
+      selectedReservableScope,
+    ]
+  )
+
+  const handleDateClick = useCallback(
+    (arg: DateClickArg) => {
+      if (arg.allDay) return
+
+      const clickEnd = new Date(arg.date)
+      clickEnd.setMinutes(clickEnd.getMinutes() + 1)
+      if (selectedRangeIsOutsideReservableHours(arg.date, clickEnd)) {
+        setNonReservableMessageOpen(true)
+      }
+    },
+    [selectedRangeIsOutsideReservableHours]
+  )
+
   const handleDateSelect = useCallback((arg: DateSelectArg) => {
+    if (selectedRangeIsOutsideReservableHours(arg.start, arg.end)) {
+      setNonReservableMessageOpen(true)
+      calendarRef.current?.getApi().unselect()
+      return
+    }
+
     // Open the reservation modal with the selected time range.
     setBookingSlot({ start: arg.start, end: arg.end })
+    setBookingResourceContext(selectedFilterResource)
     // Clear the FullCalendar highlight.
     calendarRef.current?.getApi().unselect()
-  }, [])
+  }, [selectedFilterResource, selectedRangeIsOutsideReservableHours])
 
   // ---------------------------------------------------------------------------
   // Render
@@ -1893,21 +2371,35 @@ export function CalendarScreen({ onOpenReports, onOpenAdmin }: CalendarScreenPro
               ))}
             </select>
           </label>
-          <label className={styles.resourceTypeFilter}>
-            <span>View Resource</span>
-            <select
-              value={viewResourceId}
-              onChange={(event) => openResourceInfo(event.target.value)}
-              disabled={filteredViewResources.length === 0}
-            >
-              <option value="">Choose a Resource</option>
-              {filteredViewResources.map((resource) => (
-                <option key={resource.id} value={resource.id}>
-                  {resource.name}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className={styles.viewResourceFilterRow}>
+            <span aria-hidden="true" />
+            <label className={styles.resourceTypeFilter}>
+              <span>View Resource</span>
+              <select
+                value={viewResourceId}
+                onChange={(event) => handleViewResourceChange(event.target.value)}
+                disabled={filteredViewResources.length === 0}
+              >
+                <option value="">Choose a Resource</option>
+                {filteredViewResources.map((resource) => (
+                  <option key={resource.id} value={resource.id}>
+                    {resource.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <span className={styles.showInfoSlot}>
+              {selectedFilterResource && (
+                <button
+                  type="button"
+                  className={styles.secondaryAction}
+                  onClick={() => openResourceInfo(selectedFilterResource.id)}
+                >
+                  Show Info
+                </button>
+              )}
+            </span>
+          </div>
         </div>
 
         <div className={styles.calendarWrap}>
@@ -1947,6 +2439,7 @@ export function CalendarScreen({ onOpenReports, onOpenAdmin }: CalendarScreenPro
             slotMaxTime="24:00:00"
             scrollTime="08:00:00"
             select={handleDateSelect}
+            dateClick={handleDateClick}
             eventClick={handleEventClick}
             datesSet={handleDatesSet}
           />
@@ -2371,6 +2864,44 @@ export function CalendarScreen({ onOpenReports, onOpenAdmin }: CalendarScreenPro
         </div>
       )}
 
+      {nonReservableMessageOpen && (
+        <div
+          className={styles.popoverBackdrop}
+          onClick={() => setNonReservableMessageOpen(false)}
+        >
+          <div
+            ref={nonReservableInfoRef}
+            className={`${styles.popover} ${styles.nonReservableInfoModal}`}
+            style={{ borderTopColor: theme.primaryColor }}
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="non-reservable-info-title"
+            tabIndex={-1}
+          >
+            <p className={styles.popoverLabel}>Not Reservable</p>
+            <h2 id="non-reservable-info-title" className={styles.popoverTitle}>
+              This time is outside reservable hours.
+            </h2>
+            <p className={styles.popoverDetail}>
+              {selectedReservableScope
+                ? `${selectedReservableScope.label} is not reservable during the gray time blocks. Choose a time inside an available window.`
+                : 'Choose a time inside an available window.'}
+            </p>
+            <section className={styles.actionSection} aria-label="Not reservable actions">
+              <div className={styles.actionRow}>
+                <button
+                  className={styles.primaryAction}
+                  onClick={() => setNonReservableMessageOpen(false)}
+                >
+                  OK
+                </button>
+              </div>
+            </section>
+          </div>
+        </div>
+      )}
+
       {/* Reservation modal */}
       {bookingSlot && (
         <BookingModal
@@ -2386,6 +2917,7 @@ export function CalendarScreen({ onOpenReports, onOpenAdmin }: CalendarScreenPro
             refreshCalendar()
             setBookingResourceContext(null)
           }}
+          onShowResourceAvailability={showResourceAvailabilityOnCalendar}
         />
       )}
 
@@ -2399,6 +2931,7 @@ export function CalendarScreen({ onOpenReports, onOpenAdmin }: CalendarScreenPro
           onBooked={() => {
             refreshCalendar()
           }}
+          onShowResourceAvailability={showResourceAvailabilityOnCalendar}
         />
       )}
 
@@ -2412,6 +2945,7 @@ export function CalendarScreen({ onOpenReports, onOpenAdmin }: CalendarScreenPro
           onBooked={() => {
             refreshCalendar()
           }}
+          onShowResourceAvailability={showResourceAvailabilityOnCalendar}
         />
       )}
     </div>

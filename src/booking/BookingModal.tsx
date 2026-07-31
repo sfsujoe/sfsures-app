@@ -32,12 +32,23 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { Sfsures_resources } from '../generated/models/Sfsures_resourcesModel'
-import type { Sfsures_resourcetypes } from '../generated/models/Sfsures_resourcetypesModel'
+import type {
+  Sfsures_resources,
+  Sfsures_resourcessfsures_reservablehoursmode,
+} from '../generated/models/Sfsures_resourcesModel'
+import type {
+  Sfsures_resourcetypes,
+  Sfsures_resourcetypessfsures_reservablehoursmode,
+} from '../generated/models/Sfsures_resourcetypesModel'
+import type {
+  Sfsures_reservablehourwindows,
+  Sfsures_reservablehourwindowssfsures_dayofweek,
+} from '../generated/models/Sfsures_reservablehourwindowsModel'
 import type { Sfsures_attributedefinitions } from '../generated/models/Sfsures_attributedefinitionsModel'
 import type { Sfsures_reservationattributevalues } from '../generated/models/Sfsures_reservationattributevaluesModel'
 import { Sfsures_resourcesService } from '../generated/services/Sfsures_resourcesService'
 import { Sfsures_resourcetypesService } from '../generated/services/Sfsures_resourcetypesService'
+import { Sfsures_reservablehourwindowsService } from '../generated/services/Sfsures_reservablehourwindowsService'
 import { Sfsures_attributedefinitionsService } from '../generated/services/Sfsures_attributedefinitionsService'
 import { Sfsures_reservationattributevaluesService } from '../generated/services/Sfsures_reservationattributevaluesService'
 import { Sfsures_reservationoccurrencesService } from '../generated/services/Sfsures_reservationoccurrencesService'
@@ -78,6 +89,12 @@ interface BookingModalProps {
   onClose: () => void
   /** Called after a successful create/update — CalendarScreen uses this to refresh */
   onBooked: () => void
+  /** Close the modal and show the selected resource's availability on the calendar */
+  onShowResourceAvailability?: (args: {
+    resourceId: string
+    resourceTypeId: string
+    start: Date
+  }) => void
 }
 
 export interface EditableReservation {
@@ -109,11 +126,13 @@ interface ResourceOption {
   id: string
   name: string
   resourceTypeId: string
+  reservableHoursMode: Sfsures_resourcessfsures_reservablehoursmode
 }
 
 interface ResourceTypeOption {
   id: string
   name: string
+  reservableHoursMode: Sfsures_resourcetypessfsures_reservablehoursmode
 }
 
 interface ReservationCustomField {
@@ -144,6 +163,22 @@ interface ConflictInfo {
   reason?: string
 }
 
+interface ReservableHourWindowOption {
+  id: string
+  resourceId: string
+  resourceTypeId: string
+  dayOfWeek: Sfsures_reservablehourwindowssfsures_dayofweek
+  startMinute: number
+  endMinute: number
+  displayOrder: number
+}
+
+interface ReservableHoursViolation {
+  occurrenceIndex: number
+  start: Date
+  end: Date
+}
+
 type ModalMode = 'form' | 'success'
 type SaveMode = 'create' | 'edit' | 'editSeries'
 type SuccessKind = 'created' | 'updated'
@@ -169,6 +204,14 @@ const RESERVATION_COMMENTS_FIELD = 'sfsures_comments'
 const RECORD_STATUS_ACTIVE = 997330000
 const RECORD_STATUS_CANCELLED = 997330001
 const RESOURCE_TYPE_STATUS_ACTIVE = 997330000
+const RESOURCE_TYPE_RESERVABLE_ANY_TIME = 997330000
+const RESOURCE_TYPE_RESERVABLE_MF_8_5 = 997330001
+const RESOURCE_TYPE_RESERVABLE_CUSTOM = 997330002
+const RESOURCE_RESERVABLE_INHERIT = 997330000
+const RESOURCE_RESERVABLE_ANY_TIME = 997330001
+const RESOURCE_RESERVABLE_MF_8_5 = 997330002
+const RESOURCE_RESERVABLE_CUSTOM = 997330003
+const RESERVABLE_WINDOW_STATUS_ACTIVE = 997330000
 const ATTRIBUTE_APPLIES_TO_RESERVATION = 997330001
 const ATTRIBUTE_TYPE_TEXT = 997330000
 const ATTRIBUTE_TYPE_CHOICE = 997330004
@@ -190,6 +233,16 @@ const WEEKDAYS: Array<{ key: WeekdayKey; label: string; index: number }> = [
   { key: 'Thu', label: 'Thu', index: 4 },
   { key: 'Fri', label: 'Fri', index: 5 },
   { key: 'Sat', label: 'Sat', index: 6 },
+]
+
+const DAY_OF_WEEK_BY_JS_DAY: Sfsures_reservablehourwindowssfsures_dayofweek[] = [
+  997330000,
+  997330001,
+  997330002,
+  997330003,
+  997330004,
+  997330005,
+  997330006,
 ]
 
 // ---------------------------------------------------------------------------
@@ -260,6 +313,30 @@ function formatInputRange(startValue: string, endValue: string): string {
   })
 
   return `${date}, ${startTime} to ${endTime}`
+}
+
+function formatOccurrenceRange(start: Date, end: Date): string {
+  const date = start.toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  })
+  const startTime = start.toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+  const endTime = end.toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+
+  return `${date}, ${startTime} to ${endTime}`
+}
+
+function formatWindowMinute(minute: number): string {
+  const date = new Date(2020, 0, 1, Math.floor(minute / 60), minute % 60)
+  return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
 }
 
 function formatWeekLimit(weeks: number): string {
@@ -555,6 +632,114 @@ function formatConflictPrefix(conflict: ConflictInfo): string {
   return `Occurrence ${conflict.occurrenceIndex}: `
 }
 
+function minutesSinceLocalMidnight(date: Date): number {
+  return date.getHours() * 60 + date.getMinutes()
+}
+
+function sameLocalDate(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  )
+}
+
+function effectiveReservableMode(
+  resource: ResourceOption,
+  resourceType: ResourceTypeOption
+): 'anyTime' | 'mondayFriday8_5' | 'custom' {
+  if (resource.reservableHoursMode === RESOURCE_RESERVABLE_ANY_TIME) return 'anyTime'
+  if (resource.reservableHoursMode === RESOURCE_RESERVABLE_MF_8_5) return 'mondayFriday8_5'
+  if (resource.reservableHoursMode === RESOURCE_RESERVABLE_CUSTOM) return 'custom'
+  if (resourceType.reservableHoursMode === RESOURCE_TYPE_RESERVABLE_MF_8_5) {
+    return 'mondayFriday8_5'
+  }
+  if (resourceType.reservableHoursMode === RESOURCE_TYPE_RESERVABLE_CUSTOM) {
+    return 'custom'
+  }
+  return 'anyTime'
+}
+
+function effectiveReservableWindows(args: {
+  resource: ResourceOption
+  resourceType: ResourceTypeOption
+  windows: ReservableHourWindowOption[]
+}): ReservableHourWindowOption[] {
+  const mode = effectiveReservableMode(args.resource, args.resourceType)
+
+  if (mode === 'anyTime') return []
+
+  if (mode === 'mondayFriday8_5') {
+    return DAY_OF_WEEK_BY_JS_DAY.slice(1, 6).map((dayOfWeek, index) => ({
+      id: `preset-${dayOfWeek}`,
+      resourceId: '',
+      resourceTypeId: args.resourceType.id,
+      dayOfWeek,
+      startMinute: 8 * 60,
+      endMinute: 17 * 60,
+      displayOrder: (index + 1) * 10,
+    }))
+  }
+
+  const resourceCustomWindows = args.windows.filter(
+    (window) => window.resourceId === args.resource.id
+  )
+  if (args.resource.reservableHoursMode === RESOURCE_RESERVABLE_CUSTOM) {
+    return resourceCustomWindows
+  }
+
+  return args.windows.filter((window) => window.resourceTypeId === args.resourceType.id)
+}
+
+function reservableWindowLabel(windows: ReservableHourWindowOption[]): string {
+  if (windows.length === 0) return 'the configured reservable hours'
+
+  const first = windows[0]
+  const more = windows.length > 1 ? ` and ${windows.length - 1} more window${windows.length === 2 ? '' : 's'}` : ''
+  return `${formatWindowMinute(first.startMinute)} - ${formatWindowMinute(first.endMinute)}${more}`
+}
+
+function findReservableHoursViolations(args: {
+  occurrences: RequestedOccurrence[]
+  resource: ResourceOption | null
+  resourceType: ResourceTypeOption | null
+  windows: ReservableHourWindowOption[]
+}): ReservableHoursViolation[] {
+  const { resource, resourceType } = args
+  if (!resource || !resourceType) return []
+
+  const mode = effectiveReservableMode(resource, resourceType)
+  if (mode === 'anyTime') return []
+
+  const windows = effectiveReservableWindows({
+    resource,
+    resourceType,
+    windows: args.windows,
+  })
+
+  return args.occurrences
+    .filter((occurrence) => {
+      if (!sameLocalDate(occurrence.start, occurrence.end)) {
+        return true
+      }
+
+      const dayOfWeek = DAY_OF_WEEK_BY_JS_DAY[occurrence.start.getDay()]
+      const startMinute = minutesSinceLocalMidnight(occurrence.start)
+      const endMinute = minutesSinceLocalMidnight(occurrence.end)
+      return !windows.some(
+        (window) =>
+          window.dayOfWeek === dayOfWeek &&
+          startMinute >= window.startMinute &&
+          endMinute <= window.endMinute
+      )
+    })
+    .map((occurrence) => ({
+      occurrenceIndex: occurrence.index,
+      start: occurrence.start,
+      end: occurrence.end,
+    }))
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -568,6 +753,7 @@ export function BookingModal({
   initialSeries,
   onClose,
   onBooked,
+  onShowResourceAvailability,
 }: BookingModalProps) {
   const { theme, reservationLimits } = useTheme()
   const currentUser = useCurrentUser()
@@ -580,6 +766,7 @@ export function BookingModal({
   // ---- Resource list ----
   const [resourceTypes, setResourceTypes] = useState<ResourceTypeOption[]>([])
   const [resources, setResources] = useState<ResourceOption[]>([])
+  const [reservableHourWindows, setReservableHourWindows] = useState<ReservableHourWindowOption[]>([])
   const [resourcesLoading, setResourcesLoading] = useState(true)
   const [owners, setOwners] = useState<ReservationOwnerOption[]>([])
   const [ownersLoading, setOwnersLoading] = useState(false)
@@ -629,14 +816,32 @@ export function BookingModal({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [conflicts, setConflicts] = useState<ConflictInfo[]>([])
+  const [overrideViolations, setOverrideViolations] = useState<ReservableHoursViolation[]>([])
 
-  const selectedResourceIsReservable = resources.some(
-    (resource) => resource.id === selectedResourceId
+  const selectedResource = useMemo(
+    () => resources.find((resource) => resource.id === selectedResourceId) ?? null,
+    [resources, selectedResourceId]
   )
-  const selectedResourceName =
-    resources.find((resource) => resource.id === selectedResourceId)?.name ?? 'Selected resource'
-  const selectedResourceTypeId =
-    resources.find((resource) => resource.id === selectedResourceId)?.resourceTypeId ?? ''
+  const selectedResourceType = useMemo(
+    () =>
+      resourceTypes.find((resourceType) => resourceType.id === selectedResource?.resourceTypeId) ??
+      null,
+    [resourceTypes, selectedResource]
+  )
+  const selectedResourceIsReservable = selectedResource !== null
+  const selectedResourceName = selectedResource?.name ?? 'Selected resource'
+  const selectedResourceTypeId = selectedResource?.resourceTypeId ?? ''
+  const selectedResourceAllowedWindows = selectedResource && selectedResourceType
+    ? effectiveReservableWindows({
+        resource: selectedResource,
+        resourceType: selectedResourceType,
+        windows: reservableHourWindows,
+      })
+    : []
+  const selectedResourceHasCustomAvailability =
+    selectedResource &&
+    selectedResourceType &&
+    effectiveReservableMode(selectedResource, selectedResourceType) !== 'anyTime'
   const filteredResources = useMemo(
     () =>
       resourceTypeFilterId
@@ -686,6 +891,7 @@ export function BookingModal({
         setSelectedResourceId('')
       }
       setConflicts([])
+      setOverrideViolations([])
       setError('')
     },
     [selectedResourceId, selectedResourceTypeId]
@@ -700,10 +906,22 @@ export function BookingModal({
         setResourceTypeFilterId(nextResourceTypeId)
       }
       setConflicts([])
+      setOverrideViolations([])
       setError('')
     },
     [resources]
   )
+
+  const handleShowResourceAvailability = useCallback(() => {
+    if (!selectedResource || !onShowResourceAvailability) return
+
+    const parsedStart = fromDatetimeLocal(startStr)
+    onShowResourceAvailability({
+      resourceId: selectedResource.id,
+      resourceTypeId: selectedResource.resourceTypeId,
+      start: isNaN(parsedStart.getTime()) ? start : parsedStart,
+    })
+  }, [onShowResourceAvailability, selectedResource, start, startStr])
 
   useEffect(() => {
     if (mode !== 'success') return
@@ -716,9 +934,14 @@ export function BookingModal({
     const load = async () => {
       try {
         if (!currentUser) throw new Error('User identity is not available.')
-        const [resourceTypeResult, resourceResult, permittedResourceTypeIds] = await Promise.all([
+        const [resourceTypeResult, resourceResult, windowResult, permittedResourceTypeIds] = await Promise.all([
           Sfsures_resourcetypesService.getAll({
-            select: ['sfsures_resourcetypeid', 'sfsures_name', 'sfsures_status'],
+            select: [
+              'sfsures_resourcetypeid',
+              'sfsures_name',
+              'sfsures_status',
+              'sfsures_reservablehoursmode',
+            ],
             filter: `sfsures_status eq ${RESOURCE_TYPE_STATUS_ACTIVE}`,
             orderBy: ['sfsures_name asc'],
             top: 500,
@@ -728,11 +951,27 @@ export function BookingModal({
               'sfsures_resourceid',
               'sfsures_name',
               'sfsures_recordstatus',
+              'sfsures_reservablehoursmode',
               '_sfsures_resourcetype_value',
             ],
             filter: `sfsures_recordstatus eq ${RECORD_STATUS_ACTIVE}`,
             orderBy: ['sfsures_name asc'],
             top: 500,
+          }),
+          Sfsures_reservablehourwindowsService.getAll({
+            select: [
+              'sfsures_reservablehourwindowid',
+              '_sfsures_resource_value',
+              '_sfsures_resourcetype_value',
+              'sfsures_dayofweek',
+              'sfsures_startminute',
+              'sfsures_endminute',
+              'sfsures_displayorder',
+              'sfsures_recordstatus',
+            ],
+            filter: `statecode eq 0 and sfsures_recordstatus eq ${RESERVABLE_WINDOW_STATUS_ACTIVE}`,
+            orderBy: ['sfsures_dayofweek asc', 'sfsures_startminute asc', 'sfsures_displayorder asc'],
+            top: 1000,
           }),
           loadPermittedResourceTypeIds(
             currentUser.groups,
@@ -754,6 +993,8 @@ export function BookingModal({
           .map((resourceType) => ({
             id: resourceType.sfsures_resourcetypeid,
             name: resourceType.sfsures_name,
+            reservableHoursMode:
+              resourceType.sfsures_reservablehoursmode ?? RESOURCE_TYPE_RESERVABLE_ANY_TIME,
           }))
           .filter(
             (resourceType): resourceType is ResourceTypeOption =>
@@ -771,10 +1012,42 @@ export function BookingModal({
             id: resource.sfsures_resourceid,
             name: resource.sfsures_name ?? 'Unnamed',
             resourceTypeId: resource._sfsures_resourcetype_value ?? '',
+            reservableHoursMode:
+              resource.sfsures_reservablehoursmode ?? RESOURCE_RESERVABLE_INHERIT,
           }))
+
+        const resourceIds = new Set(opts.map((resource) => resource.id))
+        const loadedReservableHourWindows = (
+          (windowResult.data ?? []) as Sfsures_reservablehourwindows[]
+        )
+          .map((window) => ({
+            id: window.sfsures_reservablehourwindowid,
+            resourceId: window._sfsures_resource_value ?? '',
+            resourceTypeId: window._sfsures_resourcetype_value ?? '',
+            dayOfWeek: window.sfsures_dayofweek ?? 997330001,
+            startMinute: window.sfsures_startminute,
+            endMinute: window.sfsures_endminute,
+            displayOrder: window.sfsures_displayorder ?? 0,
+          }))
+          .filter(
+            (window): window is ReservableHourWindowOption =>
+              typeof window.id === 'string' &&
+              window.id.length > 0 &&
+              Number.isFinite(window.startMinute) &&
+              Number.isFinite(window.endMinute) &&
+              (resourceIds.has(window.resourceId) ||
+                activeResourceTypeIds.has(window.resourceTypeId))
+          )
+          .sort(
+            (a, b) =>
+              a.dayOfWeek - b.dayOfWeek ||
+              a.startMinute - b.startMinute ||
+              a.displayOrder - b.displayOrder
+          )
 
         setResourceTypes(loadedResourceTypes)
         setResources(opts)
+        setReservableHourWindows(loadedReservableHourWindows)
         setResourceTypeFilterId((current) => {
           const existingResource = opts.find(
             (resource) =>
@@ -1000,6 +1273,7 @@ export function BookingModal({
   const handleRecurrenceFrequencyChange = useCallback((frequency: RecurrenceFrequency) => {
     setRecurrenceFrequency(frequency)
     setConflicts([])
+    setOverrideViolations([])
     setError('')
 
     if (frequency === 'weekly' && recurrenceFrequency !== 'weekly') {
@@ -1018,6 +1292,7 @@ export function BookingModal({
       return sortedWeekdays([...current, weekday])
     })
     setConflicts([])
+    setOverrideViolations([])
     setError('')
   }, [])
 
@@ -1037,6 +1312,7 @@ export function BookingModal({
     if (!bookingId) return
     setError('')
     setConflicts([])
+    setOverrideViolations([])
     setSaveMode('edit')
     setMode('form')
   }, [bookingId])
@@ -1099,9 +1375,12 @@ export function BookingModal({
   )
 
   // ---- Submit handler ----
-  const handleSubmit = useCallback(async () => {
+  const handleSubmit = useCallback(async (allowReservableHoursOverride = false) => {
     setError('')
     setConflicts([])
+    if (!allowReservableHoursOverride) {
+      setOverrideViolations([])
+    }
 
     // --- Validate inputs ---
     if (!selectedResourceId) {
@@ -1186,6 +1465,33 @@ export function BookingModal({
     const firstOccurrence = requestedOccurrences[0]
     const lastOccurrence = requestedOccurrences[requestedOccurrences.length - 1]
     const isSeriesRequest = !isOccurrenceEdit && requestedOccurrences.length > 1
+    const reservableHoursViolations = findReservableHoursViolations({
+      occurrences: requestedOccurrences,
+      resource: selectedResource,
+      resourceType: selectedResourceType,
+      windows: reservableHourWindows,
+    })
+
+    if (reservableHoursViolations.length > 0) {
+      if (!currentUser.isAppAdmin) {
+        setError(
+          reservableHoursViolations.length === 1
+            ? 'This reservation is outside the allowed reservable hours for this resource.'
+            : `${reservableHoursViolations.length} occurrences are outside the allowed reservable hours for this resource.`
+        )
+        return
+      }
+
+      if (!allowReservableHoursOverride) {
+        setOverrideViolations(reservableHoursViolations)
+        setError(
+          reservableHoursViolations.length === 1
+            ? 'This reservation is outside regular reservable hours.'
+            : `${reservableHoursViolations.length} occurrences are outside regular reservable hours.`
+        )
+        return
+      }
+    }
 
     setSaving(true)
 
@@ -1596,6 +1902,9 @@ export function BookingModal({
     initialReservation,
     initialSeries,
     selectedResourceName,
+    selectedResource,
+    selectedResourceType,
+    reservableHourWindows,
     resetRecurrenceFields,
     onBooked,
   ])
@@ -1885,11 +2194,12 @@ export function BookingModal({
                   type="datetime-local"
                   className={styles.input}
                   value={startStr}
-                  onChange={(e) => {
-                    setStartStr(e.target.value)
-                    setConflicts([])
-                    setError('')
-                  }}
+                onChange={(e) => {
+                  setStartStr(e.target.value)
+                  setConflicts([])
+                  setOverrideViolations([])
+                  setError('')
+                }}
                 />
               </div>
               <div className={styles.field}>
@@ -1901,14 +2211,27 @@ export function BookingModal({
                   type="datetime-local"
                   className={styles.input}
                   value={endStr}
-                  onChange={(e) => {
-                    setEndStr(e.target.value)
-                    setConflicts([])
-                    setError('')
-                  }}
+                onChange={(e) => {
+                  setEndStr(e.target.value)
+                  setConflicts([])
+                  setOverrideViolations([])
+                  setError('')
+                }}
                 />
               </div>
             </div>
+            {selectedResourceHasCustomAvailability && onShowResourceAvailability && (
+              <p className={styles.availabilityHint}>
+                This resource has custom availability.{' '}
+                <button
+                  type="button"
+                  className={styles.availabilityLink}
+                  onClick={handleShowResourceAvailability}
+                >
+                  Show on calendar.
+                </button>
+              </p>
+            )}
             <p className={styles.limitHint}>
               Reservations can span up to {formatWeekLimit(reservationLimits.maxSpanWeeks)}.
             </p>
@@ -1957,6 +2280,7 @@ export function BookingModal({
                           onChange={(e) => {
                             setRecurrenceInterval(e.target.value)
                             setConflicts([])
+                            setOverrideViolations([])
                             setError('')
                           }}
                         />
@@ -2008,6 +2332,7 @@ export function BookingModal({
                             onClick={() => {
                               setRecurrenceEndMode(value as RecurrenceEndMode)
                               setConflicts([])
+                              setOverrideViolations([])
                               setError('')
                             }}
                           >
@@ -2033,6 +2358,7 @@ export function BookingModal({
                           onChange={(e) => {
                             setOccurrenceCount(e.target.value)
                             setConflicts([])
+                            setOverrideViolations([])
                             setError('')
                           }}
                         />
@@ -2051,6 +2377,7 @@ export function BookingModal({
                           onChange={(e) => {
                             setUntilDate(e.target.value)
                             setConflicts([])
+                            setOverrideViolations([])
                             setError('')
                           }}
                         />
@@ -2164,6 +2491,57 @@ export function BookingModal({
                 )}
               </div>
             )}
+
+            {overrideViolations.length > 0 && currentUser?.isAppAdmin && (
+              <section
+                className={styles.overrideWarning}
+                aria-labelledby="reservable-hours-override-title"
+              >
+                <div>
+                  <h3 id="reservable-hours-override-title">Reserve outside regular hours?</h3>
+                  <p>
+                    This request falls outside the allowed reservable hours for{' '}
+                    {selectedResourceName}. Regular hours include{' '}
+                    {reservableWindowLabel(selectedResourceAllowedWindows)}.
+                  </p>
+                </div>
+                <ul className={styles.conflictList}>
+                  {overrideViolations.slice(0, 5).map((violation) => (
+                    <li key={`${violation.occurrenceIndex}-${violation.start.toISOString()}`}>
+                      {overrideViolations.length > 1
+                        ? `Occurrence ${violation.occurrenceIndex}: `
+                        : ''}
+                      {formatOccurrenceRange(violation.start, violation.end)}
+                    </li>
+                  ))}
+                  {overrideViolations.length > 5 && (
+                    <li>...and {overrideViolations.length - 5} more</li>
+                  )}
+                </ul>
+                <div className={styles.overrideActions}>
+                  <button
+                    type="button"
+                    className={styles.btnSecondary}
+                    disabled={saving}
+                    onClick={() => {
+                      setOverrideViolations([])
+                      setError('')
+                    }}
+                  >
+                    Review Times
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.btnPrimary}
+                    style={{ backgroundColor: theme.primaryColor }}
+                    disabled={saving}
+                    onClick={() => void handleSubmit(true)}
+                  >
+                    Confirm Override
+                  </button>
+                </div>
+              </section>
+            )}
           </div>
         )}
 
@@ -2197,7 +2575,7 @@ export function BookingModal({
               <button
                 className={styles.btnPrimary}
                 style={{ backgroundColor: theme.primaryColor }}
-                onClick={handleSubmit}
+                onClick={() => void handleSubmit(false)}
                 disabled={!canSubmit}
               >
                 {saving ? savingLabel : submitLabel}

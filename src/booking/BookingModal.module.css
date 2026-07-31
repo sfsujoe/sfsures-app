@@ -139,6 +139,29 @@
   line-height: 1.4;
 }
 
+.availabilityHint {
+  margin: -0.35rem 0 0;
+  color: #555555;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+.availabilityLink {
+  border: 0;
+  background: transparent;
+  color: var(--sfsures-primary, #442C8B);
+  padding: 0;
+  font: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.availabilityLink:focus-visible {
+  outline: 2px solid var(--sfsures-primary, #442C8B);
+  outline-offset: 2px;
+}
+
 .recurrenceSection {
   border: 1px solid #e4e4e4;
   border-radius: 8px;
@@ -268,6 +291,40 @@
   font-size: 0.8125rem;
   color: #555;
   line-height: 1.6;
+}
+
+.overrideWarning {
+  display: grid;
+  gap: 0.75rem;
+  border: 1px solid #f0c36a;
+  border-left: 3px solid #b7791f;
+  border-radius: 6px;
+  background: #fffbeb;
+  padding: 0.75rem 0.875rem;
+}
+
+.overrideWarning h3 {
+  margin: 0;
+  color: #1a1a1a;
+  font-size: 0.9375rem;
+}
+
+.overrideWarning p {
+  margin: 0.25rem 0 0;
+  color: #444444;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.overrideWarning .conflictList {
+  margin-top: 0;
+}
+
+.overrideActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.625rem;
+  flex-wrap: wrap;
 }
 
 /* ---- Success confirmation ---- */
@@ -425,7 +482,8 @@
   }
 
   .btnSecondary,
-  .btnPrimary {
+  .btnPrimary,
+  .overrideActions {
     width: 100%;
     text-align: center;
   }

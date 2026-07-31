@@ -16,16 +16,25 @@ import { useCurrentUser } from '../auth/UserContext'
 import type {
   Sfsures_resources,
   Sfsures_resourcessfsures_calendarcolor,
+  Sfsures_resourcessfsures_reservablehoursmode,
 } from '../generated/models/Sfsures_resourcesModel'
-import type { Sfsures_resourcetypes } from '../generated/models/Sfsures_resourcetypesModel'
+import type {
+  Sfsures_resourcetypes,
+  Sfsures_resourcetypessfsures_reservablehoursmode,
+} from '../generated/models/Sfsures_resourcetypesModel'
 import type { Sfsures_attributedefinitions } from '../generated/models/Sfsures_attributedefinitionsModel'
 import type { Sfsures_resourceattributevalues } from '../generated/models/Sfsures_resourceattributevaluesModel'
 import type { Sfsures_reservationattributevalues } from '../generated/models/Sfsures_reservationattributevaluesModel'
+import type {
+  Sfsures_reservablehourwindows,
+  Sfsures_reservablehourwindowssfsures_dayofweek,
+} from '../generated/models/Sfsures_reservablehourwindowsModel'
 import { Sfsures_resourcesService } from '../generated/services/Sfsures_resourcesService'
 import { Sfsures_resourcetypesService } from '../generated/services/Sfsures_resourcetypesService'
 import { Sfsures_attributedefinitionsService } from '../generated/services/Sfsures_attributedefinitionsService'
 import { Sfsures_resourceattributevaluesService } from '../generated/services/Sfsures_resourceattributevaluesService'
 import { Sfsures_reservationattributevaluesService } from '../generated/services/Sfsures_reservationattributevaluesService'
+import { Sfsures_reservablehourwindowsService } from '../generated/services/Sfsures_reservablehourwindowsService'
 import {
   RESOURCE_COLOR_OPTIONS,
   resourceColorByValue,
@@ -46,6 +55,7 @@ interface AdminResourceType {
   name: string
   description: string
   status: number
+  reservableHoursMode: Sfsures_resourcetypessfsures_reservablehoursmode
 }
 
 interface AdminResource {
@@ -58,6 +68,7 @@ interface AdminResource {
   description: string
   calendarColor: Sfsures_resourcessfsures_calendarcolor
   recordStatus: number
+  reservableHoursMode: Sfsures_resourcessfsures_reservablehoursmode
   photoThumbnailUrl: string | null
 }
 
@@ -136,10 +147,44 @@ interface PhotoCropSource {
   dataUrl: string
 }
 
+interface ReservableHourWindowDraft {
+  clientId: string
+  id: string | null
+  dayOfWeek: Sfsures_reservablehourwindowssfsures_dayofweek
+  startTime: string
+  endTime: string
+}
+
+interface NormalizedReservableHourWindow {
+  clientId: string
+  dayOfWeek: Sfsures_reservablehourwindowssfsures_dayofweek
+  startMinute: number
+  endMinute: number
+}
+
+type ReservableHoursModeValue =
+  | Sfsures_resourcetypessfsures_reservablehoursmode
+  | Sfsures_resourcessfsures_reservablehoursmode
+
+type ReservableHoursDialogTarget =
+  | { kind: 'resourceType'; resourceTypeId: string }
+  | { kind: 'resource'; resourceId: string; resourceTypeId: string }
+
 const RESOURCE_TYPE_STATUS_ACTIVE = 997330000
 const RESOURCE_TYPE_STATUS_INACTIVE = 997330001
 const RESOURCE_STATUS_ACTIVE = 997330000
 const RESOURCE_STATUS_DISABLED = 997330001
+const RESOURCE_TYPE_RESERVABLE_ANY_TIME = 997330000
+const RESOURCE_TYPE_RESERVABLE_MF_8_5 = 997330001
+const RESOURCE_TYPE_RESERVABLE_CUSTOM = 997330002
+const RESOURCE_RESERVABLE_INHERIT = 997330000
+const RESOURCE_RESERVABLE_ANY_TIME = 997330001
+const RESOURCE_RESERVABLE_MF_8_5 = 997330002
+const RESOURCE_RESERVABLE_CUSTOM = 997330003
+const RESERVABLE_WINDOW_STATUS_ACTIVE = 997330000
+const DEFAULT_WINDOW_DAY = 997330001
+const DEFAULT_WINDOW_START_MINUTE = 8 * 60
+const DEFAULT_WINDOW_END_MINUTE = 17 * 60
 const ATTRIBUTE_APPLIES_TO_RESOURCE = 997330000
 const ATTRIBUTE_APPLIES_TO_RESERVATION = 997330001
 const ATTRIBUTE_TYPE_TEXT = 997330000
@@ -154,6 +199,68 @@ const SUPPORTED_RESOURCE_PHOTO_TYPES = new Set([
   'image/gif',
   'image/bmp',
 ])
+
+const RESERVABLE_HOURS_MODE_OPTIONS: Array<{
+  value: ReservableHoursModeValue
+  label: string
+  description: string
+}> = [
+  {
+    value: RESOURCE_TYPE_RESERVABLE_ANY_TIME,
+    label: 'Any Time',
+    description: 'Reservations may be made any day and any time.',
+  },
+  {
+    value: RESOURCE_TYPE_RESERVABLE_MF_8_5,
+    label: 'Monday - Friday 8 - 5',
+    description: 'Reservations are limited to weekdays from 8:00 AM to 5:00 PM.',
+  },
+  {
+    value: RESOURCE_TYPE_RESERVABLE_CUSTOM,
+    label: 'Custom',
+    description: 'Define one or more reservable windows by day and time.',
+  },
+]
+
+const RESOURCE_RESERVABLE_HOURS_MODE_OPTIONS: Array<{
+  value: ReservableHoursModeValue
+  label: string
+  description: string
+}> = [
+  {
+    value: RESOURCE_RESERVABLE_INHERIT,
+    label: 'Inherit from Resource Type',
+    description: 'Use this Resource Type\'s reservable hours.',
+  },
+  {
+    value: RESOURCE_RESERVABLE_ANY_TIME,
+    label: 'Any Time',
+    description: 'Reservations may be made any day and any time.',
+  },
+  {
+    value: RESOURCE_RESERVABLE_MF_8_5,
+    label: 'Monday - Friday 8 - 5',
+    description: 'Reservations are limited to weekdays from 8:00 AM to 5:00 PM.',
+  },
+  {
+    value: RESOURCE_RESERVABLE_CUSTOM,
+    label: 'Custom',
+    description: 'Define one or more Resource-specific reservable windows.',
+  },
+]
+
+const RESERVABLE_DAY_OPTIONS: Array<{
+  value: Sfsures_reservablehourwindowssfsures_dayofweek
+  label: string
+}> = [
+  { value: 997330000, label: 'Sunday' },
+  { value: 997330001, label: 'Monday' },
+  { value: 997330002, label: 'Tuesday' },
+  { value: 997330003, label: 'Wednesday' },
+  { value: 997330004, label: 'Thursday' },
+  { value: 997330005, label: 'Friday' },
+  { value: 997330006, label: 'Saturday' },
+]
 
 const EMPTY_RESOURCE_TYPE_FORM: ResourceTypeForm = {
   id: null,
@@ -282,6 +389,145 @@ function resourceReservableLabel(resource: AdminResource): string {
   return 'No'
 }
 
+function reservableHoursModeLabel(
+  mode: ReservableHoursModeValue | null | undefined
+): string {
+  return (
+    RESERVABLE_HOURS_MODE_OPTIONS.find((option) => option.value === mode)?.label ??
+    'Any Time'
+  )
+}
+
+function resourceReservableHoursModeLabel(
+  mode: Sfsures_resourcessfsures_reservablehoursmode | null | undefined
+): string {
+  return (
+    RESOURCE_RESERVABLE_HOURS_MODE_OPTIONS.find((option) => option.value === mode)?.label ??
+    'Inherit from Resource Type'
+  )
+}
+
+function minuteToTimeInput(minute: number | null | undefined): string {
+  const boundedMinute = Math.max(0, Math.min(23 * 60 + 59, Math.round(minute ?? 0)))
+  const hours = Math.floor(boundedMinute / 60)
+  const minutes = boundedMinute % 60
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
+}
+
+function timeInputToMinute(value: string): number | null {
+  const match = /^(\d{2}):(\d{2})$/.exec(value)
+  if (!match) return null
+
+  const hours = Number(match[1])
+  const minutes = Number(match[2])
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null
+
+  return hours * 60 + minutes
+}
+
+function dayLabel(dayOfWeek: Sfsures_reservablehourwindowssfsures_dayofweek): string {
+  return (
+    RESERVABLE_DAY_OPTIONS.find((option) => option.value === dayOfWeek)?.label ??
+    'Day'
+  )
+}
+
+function formatTimeLabel(minute: number): string {
+  const date = new Date(2020, 0, 1, Math.floor(minute / 60), minute % 60)
+  return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+}
+
+function reservableWindowName(window: NormalizedReservableHourWindow): string {
+  return `${dayLabel(window.dayOfWeek)} ${formatTimeLabel(window.startMinute)} - ${formatTimeLabel(window.endMinute)}`
+}
+
+function makeWindowClientId(): string {
+  return `window-${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+function makeReservableHourWindowDraft(
+  window?: Sfsures_reservablehourwindows
+): ReservableHourWindowDraft {
+  return {
+    clientId: makeWindowClientId(),
+    id: window?.sfsures_reservablehourwindowid ?? null,
+    dayOfWeek: window?.sfsures_dayofweek ?? DEFAULT_WINDOW_DAY,
+    startTime: minuteToTimeInput(window?.sfsures_startminute ?? DEFAULT_WINDOW_START_MINUTE),
+    endTime: minuteToTimeInput(window?.sfsures_endminute ?? DEFAULT_WINDOW_END_MINUTE),
+  }
+}
+
+function newReservableHourWindowDraft(
+  existingWindows: ReservableHourWindowDraft[]
+): ReservableHourWindowDraft {
+  const weekdays = RESERVABLE_DAY_OPTIONS.slice(1, 6)
+  const firstUnusedWeekday =
+    weekdays.find(
+      (day) => !existingWindows.some((window) => window.dayOfWeek === day.value)
+    )?.value ?? DEFAULT_WINDOW_DAY
+
+  return {
+    clientId: makeWindowClientId(),
+    id: null,
+    dayOfWeek: firstUnusedWeekday,
+    startTime: minuteToTimeInput(DEFAULT_WINDOW_START_MINUTE),
+    endTime: minuteToTimeInput(DEFAULT_WINDOW_END_MINUTE),
+  }
+}
+
+function normalizeReservableHourWindows(
+  windows: ReservableHourWindowDraft[]
+): { windows: NormalizedReservableHourWindow[]; error: string | null } {
+  const normalized = windows.map((window) => {
+    const startMinute = timeInputToMinute(window.startTime)
+    const endMinute = timeInputToMinute(window.endTime)
+
+    return {
+      clientId: window.clientId,
+      dayOfWeek: window.dayOfWeek,
+      startMinute,
+      endMinute,
+    }
+  })
+
+  const invalidWindow = normalized.find(
+    (window) => window.startMinute === null || window.endMinute === null
+  )
+  if (invalidWindow) {
+    return { windows: [], error: 'Enter a start and end time for each window.' }
+  }
+
+  const completeWindows = normalized.map((window) => ({
+    clientId: window.clientId,
+    dayOfWeek: window.dayOfWeek,
+    startMinute: window.startMinute!,
+    endMinute: window.endMinute!,
+  }))
+
+  const backwardsWindow = completeWindows.find(
+    (window) => window.startMinute >= window.endMinute
+  )
+  if (backwardsWindow) {
+    return { windows: [], error: 'Each window must end after it starts.' }
+  }
+
+  const sortedWindows = [...completeWindows].sort(
+    (a, b) => a.dayOfWeek - b.dayOfWeek || a.startMinute - b.startMinute || a.endMinute - b.endMinute
+  )
+  for (let index = 1; index < sortedWindows.length; index += 1) {
+    const previous = sortedWindows[index - 1]
+    const current = sortedWindows[index]
+    if (previous.dayOfWeek === current.dayOfWeek && current.startMinute < previous.endMinute) {
+      return {
+        windows: [],
+        error: `${dayLabel(current.dayOfWeek)} windows cannot overlap.`,
+      }
+    }
+  }
+
+  return { windows: sortedWindows, error: null }
+}
+
 function resourcePhotoThumbnailSrc(value: unknown): string | null {
   const base64 = typeof value === 'string' ? value.trim() : ''
   if (!base64) return null
@@ -379,11 +625,18 @@ function resourcePhotoBytesAsDataUrl(bytes: Uint8Array): Promise<string> {
 }
 
 function resourceTypeSnapshot(resourceType: AdminResourceType | ResourceTypeForm) {
+  const reservableHoursMode =
+    'reservableHoursMode' in resourceType
+      ? resourceType.reservableHoursMode
+      : RESOURCE_TYPE_RESERVABLE_ANY_TIME
+
   return {
     resourceTypeId: 'resourceTypeId' in resourceType ? resourceType.resourceTypeId : resourceType.id,
     name: resourceType.name,
     description: resourceType.description || null,
     status: 'status' in resourceType ? resourceType.status : RESOURCE_TYPE_STATUS_ACTIVE,
+    reservableHoursMode,
+    reservableHoursModeName: reservableHoursModeLabel(reservableHoursMode),
   }
 }
 
@@ -416,6 +669,7 @@ export function ResourceCatalogScreen({ mode }: ResourceCatalogScreenProps) {
   const colorPickerListboxId = `${colorPickerId}-listbox`
   const dialogTitleId = `${colorPickerId}-dialog-title`
   const resourceListDialogTitleId = `${colorPickerId}-resource-list-title`
+  const reservableHoursDialogTitleId = `${colorPickerId}-reservable-hours-title`
   const resourcePhotoPreviewTitleId = `${colorPickerId}-photo-preview-title`
   const [resourceTypes, setResourceTypes] = useState<AdminResourceType[]>([])
   const [resources, setResources] = useState<AdminResource[]>([])
@@ -432,6 +686,18 @@ export function ResourceCatalogScreen({ mode }: ResourceCatalogScreenProps) {
   const [selectedResourceTypeId, setSelectedResourceTypeId] = useState<string | null>(null)
   const [selectedResourceId, setSelectedResourceId] = useState<string | null>(null)
   const [resourceListResourceTypeId, setResourceListResourceTypeId] = useState<string | null>(null)
+  const [reservableHoursTarget, setReservableHoursTarget] =
+    useState<ReservableHoursDialogTarget | null>(null)
+  const [reservableHoursMode, setReservableHoursMode] =
+    useState<ReservableHoursModeValue>(
+      RESOURCE_TYPE_RESERVABLE_ANY_TIME
+    )
+  const [reservableHourWindows, setReservableHourWindows] = useState<
+    ReservableHourWindowDraft[]
+  >([])
+  const [reservableHoursLoadStatus, setReservableHoursLoadStatus] = useState<
+    'idle' | 'loading' | 'ready' | 'error'
+  >('idle')
   const [photoPreviewResourceId, setPhotoPreviewResourceId] = useState<string | null>(null)
   const [resourceTypeSearch, setResourceTypeSearch] = useState('')
   const [resourceSearch, setResourceSearch] = useState('')
@@ -440,6 +706,7 @@ export function ResourceCatalogScreen({ mode }: ResourceCatalogScreenProps) {
   const [loadStatus, setLoadStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [savingResourceType, setSavingResourceType] = useState(false)
   const [savingResource, setSavingResource] = useState(false)
+  const [savingReservableHours, setSavingReservableHours] = useState(false)
   const [error, setError] = useState('')
   const [status, setStatus] = useState('')
   const [activeDialog, setActiveDialog] = useState<ResourceDialog | null>(null)
@@ -456,6 +723,7 @@ export function ResourceCatalogScreen({ mode }: ResourceCatalogScreenProps) {
   const colorPickerRef = useRef<HTMLDivElement | null>(null)
   const dialogRef = useRef<HTMLDivElement | null>(null)
   const resourceListDialogRef = useRef<HTMLDivElement | null>(null)
+  const reservableHoursDialogRef = useRef<HTMLDivElement | null>(null)
   const resourcePhotoInputRef = useRef<HTMLInputElement | null>(null)
   const resourcePhotoPreviewDialogRef = useRef<HTMLDivElement | null>(null)
   const attributesDialogRef = useRef<HTMLDivElement | null>(null)
@@ -463,6 +731,7 @@ export function ResourceCatalogScreen({ mode }: ResourceCatalogScreenProps) {
   const [colorPickerOpen, setColorPickerOpen] = useState(false)
   useFocusTrap(dialogRef, activeDialog !== null)
   useFocusTrap(resourceListDialogRef, resourceListResourceTypeId !== null)
+  useFocusTrap(reservableHoursDialogRef, reservableHoursTarget !== null)
   useFocusTrap(resourcePhotoPreviewDialogRef, photoPreviewResourceId !== null)
   useFocusTrap(attributesDialogRef, attributeDefinitionDialog !== null)
   useFocusTrap(attributeDeleteDialogRef, pendingAttributeDelete !== null)
@@ -482,6 +751,7 @@ export function ResourceCatalogScreen({ mode }: ResourceCatalogScreenProps) {
             'sfsures_name',
             'sfsures_description',
             'sfsures_status',
+            'sfsures_reservablehoursmode',
           ],
           orderBy: ['sfsures_name asc'],
           top: 500,
@@ -495,6 +765,7 @@ export function ResourceCatalogScreen({ mode }: ResourceCatalogScreenProps) {
             'sfsures_description',
             'sfsures_calendarcolor',
             'sfsures_recordstatus',
+            'sfsures_reservablehoursmode',
           ],
           orderBy: ['sfsures_name asc'],
           top: 500,
@@ -519,6 +790,8 @@ export function ResourceCatalogScreen({ mode }: ResourceCatalogScreenProps) {
           name: resourceType.sfsures_name,
           description: resourceType.sfsures_description ?? '',
           status: resourceType.sfsures_status ?? RESOURCE_TYPE_STATUS_ACTIVE,
+          reservableHoursMode:
+            resourceType.sfsures_reservablehoursmode ?? RESOURCE_TYPE_RESERVABLE_ANY_TIME,
         }))
         .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()))
 
@@ -546,6 +819,8 @@ export function ResourceCatalogScreen({ mode }: ResourceCatalogScreenProps) {
             calendarColor:
               resource.sfsures_calendarcolor ?? DEFAULT_RESOURCE_COLOR,
             recordStatus: resource.sfsures_recordstatus ?? RESOURCE_STATUS_ACTIVE,
+            reservableHoursMode:
+              resource.sfsures_reservablehoursmode ?? RESOURCE_RESERVABLE_INHERIT,
             photoThumbnailUrl: resourcePhoto?.photoThumbnailUrl ?? null,
           }
         })
@@ -663,6 +938,39 @@ export function ResourceCatalogScreen({ mode }: ResourceCatalogScreenProps) {
       ) ?? null,
     [resourceListResourceTypeId, resourceTypes]
   )
+
+  const reservableHoursResourceType = useMemo(
+    () =>
+      reservableHoursTarget
+        ? resourceTypes.find(
+            (resourceType) =>
+              resourceType.resourceTypeId === reservableHoursTarget.resourceTypeId
+          ) ?? null
+        : null,
+    [reservableHoursTarget, resourceTypes]
+  )
+
+  const reservableHoursResource = useMemo(
+    () =>
+      reservableHoursTarget?.kind === 'resource'
+        ? resources.find((resource) => resource.resourceId === reservableHoursTarget.resourceId) ??
+          null
+        : null,
+    [reservableHoursTarget, resources]
+  )
+
+  const reservableHoursTargetLabel =
+    reservableHoursTarget?.kind === 'resource'
+      ? reservableHoursResource?.name ?? 'Resource'
+      : reservableHoursResourceType?.name ?? 'Resource Type'
+  const reservableHoursModeOptions =
+    reservableHoursTarget?.kind === 'resource'
+      ? RESOURCE_RESERVABLE_HOURS_MODE_OPTIONS
+      : RESERVABLE_HOURS_MODE_OPTIONS
+  const reservableHoursCustomMode =
+    reservableHoursTarget?.kind === 'resource'
+      ? RESOURCE_RESERVABLE_CUSTOM
+      : RESOURCE_TYPE_RESERVABLE_CUSTOM
 
   const resourceListResources = useMemo(
     () =>
@@ -1208,6 +1516,295 @@ export function ResourceCatalogScreen({ mode }: ResourceCatalogScreenProps) {
     setResourceListResourceTypeId(null)
   }
 
+  async function openResourceTypeReservableHoursDialog() {
+    if (!selectedResourceType) return
+
+    setReservableHoursTarget({
+      kind: 'resourceType',
+      resourceTypeId: selectedResourceType.resourceTypeId,
+    })
+    setReservableHoursMode(selectedResourceType.reservableHoursMode)
+    setReservableHourWindows([])
+    setReservableHoursLoadStatus('loading')
+    setModalError('')
+    setStatus('')
+
+    try {
+      const result = await Sfsures_reservablehourwindowsService.getAll({
+        select: [
+          'sfsures_reservablehourwindowid',
+          '_sfsures_resourcetype_value',
+          '_sfsures_resource_value',
+          'sfsures_dayofweek',
+          'sfsures_startminute',
+          'sfsures_endminute',
+          'sfsures_displayorder',
+          'sfsures_recordstatus',
+        ],
+        filter: `statecode eq 0 and sfsures_recordstatus eq ${RESERVABLE_WINDOW_STATUS_ACTIVE} and _sfsures_resourcetype_value eq ${selectedResourceType.resourceTypeId}`,
+        orderBy: ['sfsures_dayofweek asc', 'sfsures_startminute asc', 'sfsures_displayorder asc'],
+        top: 500,
+      })
+
+      setReservableHourWindows(
+        ((result.data ?? []) as Sfsures_reservablehourwindows[])
+          .filter(
+            (window) =>
+              window._sfsures_resourcetype_value === selectedResourceType.resourceTypeId &&
+              !window._sfsures_resource_value
+          )
+          .map(makeReservableHourWindowDraft)
+      )
+      setReservableHoursLoadStatus('ready')
+    } catch (err) {
+      console.error('Load reservable hours failed:', err)
+      setReservableHoursLoadStatus('error')
+      setModalError(err instanceof Error ? err.message : 'Reservable hours could not be loaded.')
+    }
+  }
+
+  async function openResourceReservableHoursDialog() {
+    if (!selectedResource) return
+
+    setReservableHoursTarget({
+      kind: 'resource',
+      resourceId: selectedResource.resourceId,
+      resourceTypeId: selectedResource.resourceTypeId,
+    })
+    setReservableHoursMode(selectedResource.reservableHoursMode)
+    setReservableHourWindows([])
+    setReservableHoursLoadStatus('loading')
+    setModalError('')
+    setStatus('')
+
+    try {
+      const result = await Sfsures_reservablehourwindowsService.getAll({
+        select: [
+          'sfsures_reservablehourwindowid',
+          '_sfsures_resource_value',
+          '_sfsures_resourcetype_value',
+          'sfsures_dayofweek',
+          'sfsures_startminute',
+          'sfsures_endminute',
+          'sfsures_displayorder',
+          'sfsures_recordstatus',
+        ],
+        filter: `statecode eq 0 and sfsures_recordstatus eq ${RESERVABLE_WINDOW_STATUS_ACTIVE} and _sfsures_resource_value eq ${selectedResource.resourceId}`,
+        orderBy: ['sfsures_dayofweek asc', 'sfsures_startminute asc', 'sfsures_displayorder asc'],
+        top: 500,
+      })
+
+      setReservableHourWindows(
+        ((result.data ?? []) as Sfsures_reservablehourwindows[])
+          .filter((window) => window._sfsures_resource_value === selectedResource.resourceId)
+          .map(makeReservableHourWindowDraft)
+      )
+      setReservableHoursLoadStatus('ready')
+    } catch (err) {
+      console.error('Load reservable hours failed:', err)
+      setReservableHoursLoadStatus('error')
+      setModalError(err instanceof Error ? err.message : 'Reservable hours could not be loaded.')
+    }
+  }
+
+  function closeReservableHoursDialog() {
+    setReservableHoursTarget(null)
+    setReservableHourWindows([])
+    setReservableHoursLoadStatus('idle')
+    setModalError('')
+  }
+
+  function handleReservableHoursDialogKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (event.key !== 'Escape') return
+
+    event.preventDefault()
+    if (!savingReservableHours) {
+      closeReservableHoursDialog()
+    }
+  }
+
+  function addReservableHourWindow() {
+    setReservableHourWindows((current) => [
+      ...current,
+      newReservableHourWindowDraft(current),
+    ])
+  }
+
+  function updateReservableHourWindow(
+    clientId: string,
+    changes: Partial<Pick<ReservableHourWindowDraft, 'dayOfWeek' | 'startTime' | 'endTime'>>
+  ) {
+    setReservableHourWindows((current) =>
+      current.map((window) =>
+        window.clientId === clientId ? { ...window, ...changes } : window
+      )
+    )
+  }
+
+  function removeReservableHourWindow(clientId: string) {
+    setReservableHourWindows((current) =>
+      current.filter((window) => window.clientId !== clientId)
+    )
+  }
+
+  async function handleSaveReservableHours(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!reservableHoursTarget) return
+
+    const { windows, error: windowError } = normalizeReservableHourWindows(
+      reservableHourWindows
+    )
+
+    if (reservableHoursMode === reservableHoursCustomMode) {
+      if (windowError) {
+        setModalError(windowError)
+        return
+      }
+
+      if (windows.length === 0) {
+        setModalError('Add at least one reservable window for Custom hours.')
+        return
+      }
+    }
+
+    setSavingReservableHours(true)
+    setModalError('')
+    setStatus('')
+
+    try {
+      const target = reservableHoursTarget
+      const beforeResourceType = reservableHoursResourceType
+      const beforeResource = reservableHoursResource
+      const isResourceTarget = target.kind === 'resource'
+      const targetId = isResourceTarget ? target.resourceId : target.resourceTypeId
+      const targetLabel =
+        isResourceTarget
+          ? beforeResource?.name ?? 'Resource'
+          : beforeResourceType?.name ?? 'Resource Type'
+
+      if (isResourceTarget) {
+        await Sfsures_resourcesService.update(target.resourceId, {
+          sfsures_reservablehoursmode: reservableHoursMode,
+        } as unknown as Parameters<typeof Sfsures_resourcesService.update>[1])
+      } else {
+        await Sfsures_resourcetypesService.update(target.resourceTypeId, {
+          sfsures_reservablehoursmode: reservableHoursMode,
+        } as unknown as Parameters<typeof Sfsures_resourcetypesService.update>[1])
+      }
+
+      const existingWindowsResult = await Sfsures_reservablehourwindowsService.getAll({
+        select: [
+          'sfsures_reservablehourwindowid',
+          '_sfsures_resource_value',
+          '_sfsures_resourcetype_value',
+        ],
+        filter: isResourceTarget
+          ? `statecode eq 0 and sfsures_recordstatus eq ${RESERVABLE_WINDOW_STATUS_ACTIVE} and _sfsures_resource_value eq ${target.resourceId}`
+          : `statecode eq 0 and sfsures_recordstatus eq ${RESERVABLE_WINDOW_STATUS_ACTIVE} and _sfsures_resourcetype_value eq ${target.resourceTypeId}`,
+        top: 500,
+      })
+      const existingWindows = ((existingWindowsResult.data ?? []) as Sfsures_reservablehourwindows[])
+        .filter(
+          (window) => isResourceTarget
+            ? window._sfsures_resource_value === target.resourceId
+            : window._sfsures_resourcetype_value === target.resourceTypeId &&
+              !window._sfsures_resource_value
+        )
+
+      await Promise.all(
+        existingWindows.map((window) =>
+          Sfsures_reservablehourwindowsService.delete(
+            window.sfsures_reservablehourwindowid
+          )
+        )
+      )
+
+      if (reservableHoursMode === reservableHoursCustomMode) {
+        await Promise.all(
+          windows.map((window, index) =>
+            Sfsures_reservablehourwindowsService.create({
+              sfsures_name: reservableWindowName(window),
+              ...(isResourceTarget
+                ? { 'sfsures_Resource@odata.bind': `/sfsures_resources(${target.resourceId})` }
+                : {
+                    'sfsures_ResourceType@odata.bind': `/sfsures_resourcetypes(${target.resourceTypeId})`,
+                  }),
+              sfsures_dayofweek: window.dayOfWeek,
+              sfsures_startminute: window.startMinute,
+              sfsures_endminute: window.endMinute,
+              sfsures_displayorder: (index + 1) * 10,
+              sfsures_recordstatus: RESERVABLE_WINDOW_STATUS_ACTIVE,
+              statecode: 0,
+              statuscode: 1,
+            } as unknown as Parameters<typeof Sfsures_reservablehourwindowsService.create>[0])
+          )
+        )
+      }
+
+      const auditWritten = await writeAuditLog({
+        actor: currentUser,
+        actionType: AUDIT_ACTION_TYPES.resourceCatalogEdited,
+        targetType: AUDIT_TARGET_TYPES.resource,
+        targetId,
+        targetKey: isResourceTarget ? `resource:${target.resourceId}` : `resource-type:${target.resourceTypeId}`,
+        targetLabel,
+        beforeState: isResourceTarget
+          ? beforeResource
+            ? resourceSnapshot(beforeResource)
+            : undefined
+          : beforeResourceType
+            ? resourceTypeSnapshot(beforeResourceType)
+            : undefined,
+        afterState: {
+          ...(isResourceTarget
+            ? beforeResource
+              ? resourceSnapshot(beforeResource)
+              : {}
+            : beforeResourceType
+              ? resourceTypeSnapshot(beforeResourceType)
+              : {}),
+          reservableHoursMode,
+          reservableHoursModeName: isResourceTarget
+            ? resourceReservableHoursModeLabel(
+                reservableHoursMode as Sfsures_resourcessfsures_reservablehoursmode
+              )
+            : reservableHoursModeLabel(reservableHoursMode),
+          reservableHourWindows:
+            reservableHoursMode === reservableHoursCustomMode
+              ? windows.map((window) => ({
+                  dayOfWeek: window.dayOfWeek,
+                  dayName: dayLabel(window.dayOfWeek),
+                  startMinute: window.startMinute,
+                  endMinute: window.endMinute,
+                }))
+              : [],
+        },
+        details: {
+          source: 'Admin Resources screen',
+          catalogEntity: isResourceTarget ? 'Resource' : 'Resource Type',
+          operation: 'reservable-hours-update',
+        },
+      })
+
+      setStatus(
+        auditWritten
+          ? 'Reservable hours saved.'
+          : 'Reservable hours saved. Audit log could not be written.'
+      )
+      await loadCatalog(
+        isResourceTarget
+          ? { resourceTypeId: target.resourceTypeId, resourceId: target.resourceId }
+          : { resourceTypeId: target.resourceTypeId }
+      )
+      closeReservableHoursDialog()
+    } catch (err) {
+      console.error('Save reservable hours failed:', err)
+      setModalError(err instanceof Error ? err.message : 'Reservable hours could not be saved.')
+    } finally {
+      setSavingReservableHours(false)
+    }
+  }
+
   function openCreateResourceDialog() {
     setResourceForm(emptyResourceForm(fallbackResourceTypeId))
     setResourceAttributeDraft({})
@@ -1329,6 +1926,7 @@ export function ResourceCatalogScreen({ mode }: ResourceCatalogScreenProps) {
           sfsures_name: name,
           sfsures_description: description || undefined,
           sfsures_status: RESOURCE_TYPE_STATUS_ACTIVE,
+          sfsures_reservablehoursmode: RESOURCE_TYPE_RESERVABLE_ANY_TIME,
           statecode: 0,
           statuscode: 1,
         } as unknown as Parameters<typeof Sfsures_resourcetypesService.create>[0])
@@ -1518,6 +2116,7 @@ export function ResourceCatalogScreen({ mode }: ResourceCatalogScreenProps) {
           sfsures_description: description || undefined,
           sfsures_calendarcolor: resourceForm.calendarColor,
           sfsures_recordstatus: RESOURCE_STATUS_ACTIVE,
+          sfsures_reservablehoursmode: RESOURCE_RESERVABLE_INHERIT,
           statecode: 0,
           statuscode: 1,
         } as unknown as Parameters<typeof Sfsures_resourcesService.create>[0])
@@ -1779,53 +2378,68 @@ export function ResourceCatalogScreen({ mode }: ResourceCatalogScreenProps) {
                             : 'Active'}
                         </dd>
                       </div>
+                      <div>
+                        <dt>Reservable Hours</dt>
+                        <dd>{reservableHoursModeLabel(selectedResourceType.reservableHoursMode)}</dd>
+                      </div>
                     </dl>
 
                     {selectedResourceType.description && (
                       <p className={styles.groupDescription}>{selectedResourceType.description}</p>
                     )}
 
-                    <div className={styles.detailActions}>
-                      <button
-                        type="button"
-                        className={styles.secondaryButton}
-                        onClick={() =>
-                          openAttributeDefinitionsDialog(
-                            'resourceAttribute',
-                            'resourceType',
-                            selectedResourceType.resourceTypeId
-                          )
-                        }
-                      >
-                        Resource Attributes
-                      </button>
-                      <button
-                        type="button"
-                        className={styles.secondaryButton}
-                        onClick={() =>
-                          openAttributeDefinitionsDialog(
-                            'customField',
-                            'resourceType',
-                            selectedResourceType.resourceTypeId
-                          )
-                        }
-                      >
-                        Custom Fields
-                      </button>
-                      <button
-                        type="button"
-                        className={styles.secondaryButton}
-                        onClick={openResourceTypeResourcesDialog}
-                      >
-                        Show Resources
-                      </button>
-                      <button
-                        type="button"
-                        className={styles.primaryButton}
-                        onClick={openEditResourceTypeDialog}
-                      >
-                        Edit Type
-                      </button>
+                    <div className={styles.detailActionStack}>
+                      <div className={styles.detailActions}>
+                        <button
+                          type="button"
+                          className={styles.secondaryButton}
+                          onClick={() =>
+                            openAttributeDefinitionsDialog(
+                              'resourceAttribute',
+                              'resourceType',
+                              selectedResourceType.resourceTypeId
+                            )
+                          }
+                        >
+                          Resource Attributes
+                        </button>
+                        <button
+                          type="button"
+                          className={styles.secondaryButton}
+                          onClick={() =>
+                            openAttributeDefinitionsDialog(
+                              'customField',
+                              'resourceType',
+                              selectedResourceType.resourceTypeId
+                            )
+                          }
+                        >
+                          Custom Fields
+                        </button>
+                        <button
+                          type="button"
+                          className={styles.primaryButton}
+                          onClick={openEditResourceTypeDialog}
+                        >
+                          Edit Type
+                        </button>
+                      </div>
+                      <div className={`${styles.detailActions} ${styles.detailActionsSecondary}`}>
+                        <button
+                          type="button"
+                          className={styles.secondaryButton}
+                          onClick={openResourceTypeResourcesDialog}
+                        >
+                          Show Resources
+                        </button>
+                        <button
+                          type="button"
+                          className={styles.secondaryButton}
+                          onClick={() => void openResourceTypeReservableHoursDialog()}
+                        >
+                          Reservable Hours
+                        </button>
+                      </div>
                     </div>
                   </>
                 ) : (
@@ -1958,6 +2572,10 @@ export function ResourceCatalogScreen({ mode }: ResourceCatalogScreenProps) {
                         <dd>{resourceReservableLabel(selectedResource)}</dd>
                       </div>
                       <div>
+                        <dt>Reservable Hours</dt>
+                        <dd>{resourceReservableHoursModeLabel(selectedResource.reservableHoursMode)}</dd>
+                      </div>
+                      <div>
                         <dt>Color</dt>
                         <dd>{resourceColorByValue(selectedResource.calendarColor)?.label ?? 'Default'}</dd>
                       </div>
@@ -1981,42 +2599,53 @@ export function ResourceCatalogScreen({ mode }: ResourceCatalogScreenProps) {
                       </section>
                     )}
 
-                    <div className={styles.detailActions}>
-                      <button
-                        type="button"
-                        className={styles.secondaryButton}
-                        onClick={() =>
-                          openAttributeDefinitionsDialog(
-                            'resourceAttribute',
-                            'resource',
-                            selectedResource.resourceTypeId,
-                            selectedResource.resourceId
-                          )
-                        }
-                      >
-                        Resource Attributes
-                      </button>
-                      <button
-                        type="button"
-                        className={styles.secondaryButton}
-                        onClick={() =>
-                          openAttributeDefinitionsDialog(
-                            'customField',
-                            'resource',
-                            selectedResource.resourceTypeId,
-                            selectedResource.resourceId
-                          )
-                        }
-                      >
-                        Custom Fields
-                      </button>
-                      <button
-                        type="button"
-                        className={styles.primaryButton}
-                        onClick={openEditResourceDialog}
-                      >
-                        Edit Resource
-                      </button>
+                    <div className={styles.detailActionStack}>
+                      <div className={styles.detailActions}>
+                        <button
+                          type="button"
+                          className={styles.secondaryButton}
+                          onClick={() =>
+                            openAttributeDefinitionsDialog(
+                              'resourceAttribute',
+                              'resource',
+                              selectedResource.resourceTypeId,
+                              selectedResource.resourceId
+                            )
+                          }
+                        >
+                          Resource Attributes
+                        </button>
+                        <button
+                          type="button"
+                          className={styles.secondaryButton}
+                          onClick={() =>
+                            openAttributeDefinitionsDialog(
+                              'customField',
+                              'resource',
+                              selectedResource.resourceTypeId,
+                              selectedResource.resourceId
+                            )
+                          }
+                        >
+                          Custom Fields
+                        </button>
+                        <button
+                          type="button"
+                          className={styles.primaryButton}
+                          onClick={openEditResourceDialog}
+                        >
+                          Edit Resource
+                        </button>
+                      </div>
+                      <div className={`${styles.detailActions} ${styles.detailActionsSecondary}`}>
+                        <button
+                          type="button"
+                          className={styles.secondaryButton}
+                          onClick={() => void openResourceReservableHoursDialog()}
+                        >
+                          Reservable Hours
+                        </button>
+                      </div>
                     </div>
                   </>
                 ) : (
@@ -2095,6 +2724,200 @@ export function ResourceCatalogScreen({ mode }: ResourceCatalogScreenProps) {
                 </button>
               </div>
             </footer>
+          </div>
+        </div>
+      )}
+
+      {reservableHoursTarget && (
+        <div className={styles.modalBackdrop}>
+          <div
+            ref={reservableHoursDialogRef}
+            className={`${styles.adminModal} ${styles.reservableHoursModal}`}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={reservableHoursDialogTitleId}
+            tabIndex={-1}
+            onKeyDown={handleReservableHoursDialogKeyDown}
+          >
+            <form className={styles.modalForm} onSubmit={handleSaveReservableHours}>
+              <header className={styles.modalHeader}>
+                <div>
+                  <p className={styles.detailLabel}>Reservable Hours</p>
+                  <h2 id={reservableHoursDialogTitleId}>
+                    {reservableHoursTarget.kind === 'resource' ? 'Resource' : 'Resource Type'}:{' '}
+                    {reservableHoursTargetLabel}
+                  </h2>
+                </div>
+                <button
+                  type="button"
+                  className={styles.secondaryButton}
+                  disabled={savingReservableHours}
+                  onClick={closeReservableHoursDialog}
+                >
+                  Close
+                </button>
+              </header>
+
+              {modalError && (
+                <p className={styles.errorBanner} role="alert">
+                  {modalError}
+                </p>
+              )}
+
+              <div className={styles.modalBody}>
+                {reservableHoursLoadStatus === 'loading' ? (
+                  <div className={styles.inlineLoading} role="status">
+                    Loading reservable hours...
+                  </div>
+                ) : (
+                  <>
+                    <div
+                      className={styles.reservableHoursOptions}
+                      role="radiogroup"
+                      aria-label="Reservable hours mode"
+                    >
+                      {reservableHoursModeOptions.map((option) => (
+                        <label key={option.value} className={styles.groupCheckItem}>
+                          <input
+                            type="radio"
+                            name="reservable-hours-mode"
+                            value={option.value}
+                            checked={reservableHoursMode === option.value}
+                            disabled={savingReservableHours}
+                            onChange={() => setReservableHoursMode(option.value)}
+                          />
+                          <span>
+                            <strong>{option.label}</strong>
+                            <small>{option.description}</small>
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+
+                    {reservableHoursMode === reservableHoursCustomMode && (
+                      <section
+                        className={styles.reservableWindowEditor}
+                        aria-labelledby="custom-reservable-windows-heading"
+                      >
+                        <div className={styles.reservableWindowToolbar}>
+                          <h3 id="custom-reservable-windows-heading">Custom Windows</h3>
+                          <button
+                            type="button"
+                            className={styles.secondaryButton}
+                            disabled={savingReservableHours}
+                            onClick={addReservableHourWindow}
+                          >
+                            Add Window
+                          </button>
+                        </div>
+
+                        {reservableHourWindows.length === 0 ? (
+                          <p className={styles.emptyState}>No custom windows added.</p>
+                        ) : (
+                          <div className={styles.reservableWindowList}>
+                            {reservableHourWindows.map((window, index) => (
+                              <div key={window.clientId} className={styles.reservableWindowRow}>
+                                <span className={styles.reservableWindowNumber}>
+                                  {index + 1}
+                                </span>
+                                <div className={styles.reservableWindowFields}>
+                                  <label className={styles.field}>
+                                    <span>Day</span>
+                                    <select
+                                      className={styles.input}
+                                      value={window.dayOfWeek}
+                                      disabled={savingReservableHours}
+                                      onChange={(event) =>
+                                        updateReservableHourWindow(window.clientId, {
+                                          dayOfWeek: Number(
+                                            event.target.value
+                                          ) as Sfsures_reservablehourwindowssfsures_dayofweek,
+                                        })
+                                      }
+                                    >
+                                      {RESERVABLE_DAY_OPTIONS.map((day) => (
+                                        <option key={day.value} value={day.value}>
+                                          {day.label}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </label>
+                                  <label className={styles.field}>
+                                    <span>Start</span>
+                                    <input
+                                      className={styles.input}
+                                      type="time"
+                                      step="900"
+                                      value={window.startTime}
+                                      disabled={savingReservableHours}
+                                      onChange={(event) =>
+                                        updateReservableHourWindow(window.clientId, {
+                                          startTime: event.target.value,
+                                        })
+                                      }
+                                    />
+                                  </label>
+                                  <label className={styles.field}>
+                                    <span>End</span>
+                                    <input
+                                      className={styles.input}
+                                      type="time"
+                                      step="900"
+                                      value={window.endTime}
+                                      disabled={savingReservableHours}
+                                      onChange={(event) =>
+                                        updateReservableHourWindow(window.clientId, {
+                                          endTime: event.target.value,
+                                        })
+                                      }
+                                    />
+                                  </label>
+                                </div>
+                                <button
+                                  type="button"
+                                  className={styles.secondaryButton}
+                                  disabled={savingReservableHours}
+                                  onClick={() => removeReservableHourWindow(window.clientId)}
+                                >
+                                  Remove
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </section>
+                    )}
+                  </>
+                )}
+              </div>
+
+              <footer className={styles.modalFooter}>
+                <div className={styles.modalFooterStatus}>
+                  <span>{savingReservableHours ? 'Saving...' : ''}</span>
+                </div>
+                <div className={styles.modalFooterActions}>
+                  <button
+                    type="button"
+                    className={styles.secondaryButton}
+                    disabled={savingReservableHours}
+                    onClick={closeReservableHoursDialog}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className={styles.primaryButton}
+                    disabled={
+                      savingReservableHours ||
+                      reservableHoursLoadStatus === 'loading' ||
+                      reservableHoursLoadStatus === 'error'
+                    }
+                  >
+                    {savingReservableHours ? 'Saving...' : 'Save Hours'}
+                  </button>
+                </div>
+              </footer>
+            </form>
           </div>
         </div>
       )}

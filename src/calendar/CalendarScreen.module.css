@@ -268,6 +268,25 @@
   outline-offset: 2px;
 }
 
+.viewResourceFilterRow {
+  width: min(100%, 760px);
+  display: grid;
+  grid-template-columns: minmax(7rem, 1fr) auto minmax(7rem, 1fr);
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.viewResourceFilterRow .resourceTypeFilter {
+  grid-column: 2;
+  justify-self: center;
+}
+
+.showInfoSlot {
+  grid-column: 3;
+  justify-self: start;
+  min-width: 7rem;
+}
+
 .calendarWrap {
   flex: 1 1 auto;
   overflow: hidden;
@@ -386,6 +405,15 @@
   /* Blackout background events — override FullCalendar's default opacity */
   opacity: 1 !important;
   cursor: default;
+}
+
+.calendarWrap :global(.fc-bg-event.nonReservableBackground) {
+  background: rgba(80, 80, 80, 0.18) !important;
+}
+
+.calendarWrap :global(.fc-timegrid-col-events .fc-bg-event.nonReservableBackground),
+.calendarWrap :global(.fc-timegrid-bg-harness .fc-bg-event.nonReservableBackground) {
+  cursor: not-allowed;
 }
 
 /* ---- Event popover ---- */
@@ -764,6 +792,10 @@
   max-width: 520px;
 }
 
+.nonReservableInfoModal {
+  max-width: 420px;
+}
+
 .resourceInfoBody {
   display: grid;
   gap: 1rem;
@@ -929,6 +961,25 @@
   .resourceTypeFilter select {
     width: 100%;
     min-width: 0;
+  }
+
+  .viewResourceFilterRow {
+    width: 100%;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .viewResourceFilterRow .resourceTypeFilter,
+  .showInfoSlot {
+    grid-column: 1;
+    justify-self: stretch;
+  }
+
+  .showInfoSlot {
+    min-width: 0;
+  }
+
+  .showInfoSlot .secondaryAction {
+    width: 100%;
   }
 
   .headerInner {
