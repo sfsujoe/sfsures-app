@@ -34,6 +34,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   Sfsures_resources,
+  Sfsures_resourcessfsures_approvalmode,
   Sfsures_resourcessfsures_reservablehoursmode,
 } from '../generated/models/Sfsures_resourcesModel'
 import type {
@@ -53,6 +54,7 @@ import { Sfsures_attributedefinitionsService } from '../generated/services/Sfsur
 import { Sfsures_reservationattributevaluesService } from '../generated/services/Sfsures_reservationattributevaluesService'
 import { Sfsures_reservationoccurrencesService } from '../generated/services/Sfsures_reservationoccurrencesService'
 import { Sfsures_reservationseriesesService } from '../generated/services/Sfsures_reservationseriesesService'
+import { Sfsures_reservationapprovalrequestsService } from '../generated/services/Sfsures_reservationapprovalrequestsService'
 import { Sfsures_blackoutwindowsService } from '../generated/services/Sfsures_blackoutwindowsService'
 import { useTheme } from '../theme/ThemeContext'
 import { useCurrentUser } from '../auth/UserContext'
@@ -60,6 +62,7 @@ import { useFocusTrap } from '../a11y/useFocusTrap'
 import { loadPermittedResourceTypeIds } from '../auth/resourceTypePermissions'
 import { AUDIT_ACTION_TYPES, AUDIT_TARGET_TYPES, writeAuditLog } from '../audit/auditLog'
 import {
+  loadAppAdminNotificationRecipients,
   loadEligibleReservationOwners,
   loadMappedOwner,
   reservationOwnerSnapshot,
@@ -126,12 +129,14 @@ interface ResourceOption {
   id: string
   name: string
   resourceTypeId: string
+  approvalMode: Sfsures_resourcessfsures_approvalmode
   reservableHoursMode: Sfsures_resourcessfsures_reservablehoursmode
 }
 
 interface ResourceTypeOption {
   id: string
   name: string
+  requiresApproval: boolean
   reservableHoursMode: Sfsures_resourcetypessfsures_reservablehoursmode
 }
 
@@ -181,7 +186,7 @@ interface ReservableHoursViolation {
 
 type ModalMode = 'form' | 'success'
 type SaveMode = 'create' | 'edit' | 'editSeries'
-type SuccessKind = 'created' | 'updated'
+type SuccessKind = 'created' | 'updated' | 'submitted'
 type SuccessScope = 'single' | 'series'
 type RecurrenceFrequency = 'none' | EditableSeriesFrequency
 type SeriesFrequency = Exclude<RecurrenceFrequency, 'none'>
@@ -203,6 +208,7 @@ const MS_PER_WEEK = 7 * 24 * 60 * 60 * 1000
 const RESERVATION_COMMENTS_FIELD = 'sfsures_comments'
 const RECORD_STATUS_ACTIVE = 997330000
 const RECORD_STATUS_CANCELLED = 997330001
+const RECORD_STATUS_PENDING = 997330002
 const RESOURCE_TYPE_STATUS_ACTIVE = 997330000
 const RESOURCE_TYPE_RESERVABLE_ANY_TIME = 997330000
 const RESOURCE_TYPE_RESERVABLE_MF_8_5 = 997330001
@@ -211,7 +217,13 @@ const RESOURCE_RESERVABLE_INHERIT = 997330000
 const RESOURCE_RESERVABLE_ANY_TIME = 997330001
 const RESOURCE_RESERVABLE_MF_8_5 = 997330002
 const RESOURCE_RESERVABLE_CUSTOM = 997330003
+const RESOURCE_APPROVAL_INHERIT = 997330000
+const RESOURCE_APPROVAL_NOT_REQUIRED = 997330001
+const RESOURCE_APPROVAL_REQUIRED = 997330002
 const RESERVABLE_WINDOW_STATUS_ACTIVE = 997330000
+const APPROVAL_STATUS_PENDING = 997330000
+const APPROVAL_REQUEST_TYPE_SINGLE = 997330000
+const APPROVAL_REQUEST_TYPE_SERIES = 997330001
 const ATTRIBUTE_APPLIES_TO_RESERVATION = 997330001
 const ATTRIBUTE_TYPE_TEXT = 997330000
 const ATTRIBUTE_TYPE_CHOICE = 997330004
@@ -277,6 +289,29 @@ function defaultUntilDateFor(startDate: Date): string {
 /** Date → Dataverse-safe ISO string (no milliseconds) */
 function toDataverseIso(d: Date): string {
   return d.toISOString().split('.')[0] + 'Z'
+}
+
+function newGuid(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (char) => {
+    const value = Math.floor(Math.random() * 16)
+    const nibble = char === 'x' ? value : (value & 0x3) | 0x8
+    return nibble.toString(16)
+  })
+}
+
+function currentAppBaseUrl(): string {
+  if (typeof window === 'undefined') return ''
+  return `${window.location.origin}${window.location.pathname}${window.location.search}`
+}
+
+function approvalLinkForRequest(baseUrl: string, requestId: string): string {
+  const cleanBaseUrl = (baseUrl.trim() || currentAppBaseUrl()).split('#')[0]
+  if (!cleanBaseUrl) return ''
+  return `${cleanBaseUrl}#/approval/${requestId}`
 }
 
 /** Format a date/time range for display in conflict messages */
@@ -660,6 +695,16 @@ function effectiveReservableMode(
   return 'anyTime'
 }
 
+function effectiveApprovalRequired(
+  resource: ResourceOption,
+  resourceType: ResourceTypeOption
+): boolean {
+  if (resource.approvalMode === RESOURCE_APPROVAL_REQUIRED) return true
+  if (resource.approvalMode === RESOURCE_APPROVAL_NOT_REQUIRED) return false
+  if (resource.approvalMode === RESOURCE_APPROVAL_INHERIT) return resourceType.requiresApproval
+  return resourceType.requiresApproval
+}
+
 function effectiveReservableWindows(args: {
   resource: ResourceOption
   resourceType: ResourceTypeOption
@@ -755,7 +800,7 @@ export function BookingModal({
   onBooked,
   onShowResourceAvailability,
 }: BookingModalProps) {
-  const { theme, reservationLimits } = useTheme()
+  const { theme, reservationLimits, publishedAppUrl } = useTheme()
   const currentUser = useCurrentUser()
 
   // ---- Focus trap: contain Tab inside the dialog, restore focus on close ----
@@ -842,6 +887,12 @@ export function BookingModal({
     selectedResource &&
     selectedResourceType &&
     effectiveReservableMode(selectedResource, selectedResourceType) !== 'anyTime'
+  const selectedResourceRequiresApproval =
+    selectedResource && selectedResourceType
+      ? effectiveApprovalRequired(selectedResource, selectedResourceType)
+      : false
+  const isApprovalSubmission =
+    saveMode === 'create' && !currentUser?.isAppAdmin && selectedResourceRequiresApproval
   const filteredResources = useMemo(
     () =>
       resourceTypeFilterId
@@ -865,15 +916,23 @@ export function BookingModal({
       ? successScope === 'series'
         ? 'Series Updated'
         : 'Reservation Updated'
+      : successKind === 'submitted'
+        ? 'Approval Request Submitted'
       : 'Reservation Confirmed'
   const successMessage =
     successKind === 'updated'
       ? successScope === 'series'
         ? 'Your recurring reservation changes have been saved.'
         : 'Your reservation changes have been saved.'
+      : successKind === 'submitted'
+        ? successScope === 'series'
+          ? 'Your recurring reservation request has been submitted for admin approval.'
+          : 'Your reservation request has been submitted for admin approval.'
       : successScope === 'series'
         ? 'Your recurring reservation has been saved.'
         : 'Your reservation has been saved.'
+  const successSeriesAction =
+    successKind === 'updated' ? 'saved' : successKind === 'submitted' ? 'submitted' : 'created'
   const titleId = mode === 'success' ? 'booking-success-title' : 'booking-modal-title'
   const descriptionId = mode === 'success' ? 'booking-success-description' : undefined
   const isSeriesEdit = saveMode === 'editSeries'
@@ -940,6 +999,7 @@ export function BookingModal({
               'sfsures_resourcetypeid',
               'sfsures_name',
               'sfsures_status',
+              'sfsures_requiresapproval',
               'sfsures_reservablehoursmode',
             ],
             filter: `sfsures_status eq ${RESOURCE_TYPE_STATUS_ACTIVE}`,
@@ -951,6 +1011,7 @@ export function BookingModal({
               'sfsures_resourceid',
               'sfsures_name',
               'sfsures_recordstatus',
+              'sfsures_approvalmode',
               'sfsures_reservablehoursmode',
               '_sfsures_resourcetype_value',
             ],
@@ -993,6 +1054,7 @@ export function BookingModal({
           .map((resourceType) => ({
             id: resourceType.sfsures_resourcetypeid,
             name: resourceType.sfsures_name,
+            requiresApproval: resourceType.sfsures_requiresapproval === true,
             reservableHoursMode:
               resourceType.sfsures_reservablehoursmode ?? RESOURCE_TYPE_RESERVABLE_ANY_TIME,
           }))
@@ -1012,6 +1074,7 @@ export function BookingModal({
             id: resource.sfsures_resourceid,
             name: resource.sfsures_name ?? 'Unnamed',
             resourceTypeId: resource._sfsures_resourcetype_value ?? '',
+            approvalMode: resource.sfsures_approvalmode ?? RESOURCE_APPROVAL_INHERIT,
             reservableHoursMode:
               resource.sfsures_reservablehoursmode ?? RESOURCE_RESERVABLE_INHERIT,
           }))
@@ -1465,6 +1528,12 @@ export function BookingModal({
     const firstOccurrence = requestedOccurrences[0]
     const lastOccurrence = requestedOccurrences[requestedOccurrences.length - 1]
     const isSeriesRequest = !isOccurrenceEdit && requestedOccurrences.length > 1
+    const requestRequiresApproval =
+      saveMode === 'create' &&
+      !currentUser.isAppAdmin &&
+      selectedResource !== null &&
+      selectedResourceType !== null &&
+      effectiveApprovalRequired(selectedResource, selectedResourceType)
     const reservableHoursViolations = findReservableHoursViolations({
       occurrences: requestedOccurrences,
       resource: selectedResource,
@@ -1522,7 +1591,7 @@ export function BookingModal({
           : ''
 
       const [occResult, blackoutResult] = await Promise.all([
-        // Active occurrences for this resource that overlap the requested window.
+        // Active or pending occurrences for this resource that overlap the requested window.
         Sfsures_reservationoccurrencesService.getAll({
           select: [
             'sfsures_reservationoccurrenceid',
@@ -1531,7 +1600,8 @@ export function BookingModal({
           ],
           filter:
             `_sfsures_resource_value eq ${selectedResourceId}` +
-            ` and sfsures_recordstatus eq 997330000` +
+            ` and (sfsures_recordstatus eq ${RECORD_STATUS_ACTIVE}` +
+            ` or sfsures_recordstatus eq ${RECORD_STATUS_PENDING})` +
             ` and sfsures_start lt ${endIso}` +
             ` and sfsures_end gt ${startIso}` +
             excludeCurrentBooking +
@@ -1620,12 +1690,13 @@ export function BookingModal({
         seriesId?: string,
         includeBookingOwner = true,
         bookingOwnerId = selectedOwner.appUserId,
-        systemUserId = selectedOwner.systemUserId
+        systemUserId = selectedOwner.systemUserId,
+        recordStatus = RECORD_STATUS_ACTIVE
       ) => ({
         sfsures_name: `${selectedResourceName} ${formatShortDate(occurrence.start)}`,
         sfsures_start: toDataverseIso(occurrence.start),
         sfsures_end: toDataverseIso(occurrence.end),
-        sfsures_recordstatus: RECORD_STATUS_ACTIVE,
+        sfsures_recordstatus: recordStatus,
         [RESERVATION_COMMENTS_FIELD]: trimmedComments || null,
         'sfsures_Resource@odata.bind': `/sfsures_resources(${selectedResourceId})`,
         ...(includeBookingOwner
@@ -1639,7 +1710,10 @@ export function BookingModal({
           : {}),
       })
 
-      const makeSeriesFields = (includeBookingOwner = true) => ({
+      const makeSeriesFields = (
+        includeBookingOwner = true,
+        recordStatus = RECORD_STATUS_ACTIVE
+      ) => ({
         sfsures_name: `${selectedResourceName} recurring reservation`,
         sfsures_comments: trimmedComments || null,
         sfsures_frequency: SERIES_FREQUENCY[recurrenceFrequency as SeriesFrequency],
@@ -1654,7 +1728,7 @@ export function BookingModal({
           recurrenceEndMode === 'until' && endOfDateInput(untilDate)
             ? toDataverseIso(endOfDateInput(untilDate) as Date)
             : null,
-        sfsures_recordstatus: RECORD_STATUS_ACTIVE,
+        sfsures_recordstatus: recordStatus,
         'sfsures_Resource@odata.bind': `/sfsures_resources(${selectedResourceId})`,
         ...(includeBookingOwner
           ? { 'sfsures_BookingOwner@odata.bind': `/sfsures_appusers(${selectedOwner.appUserId})` }
@@ -1663,6 +1737,60 @@ export function BookingModal({
           ? { 'ownerid@odata.bind': `/systemusers(${selectedOwner.systemUserId})` }
           : {}),
       })
+
+      let notificationRecipients = ''
+      if (requestRequiresApproval) {
+        notificationRecipients = await loadAppAdminNotificationRecipients()
+        if (!notificationRecipients) {
+          setError(
+            'No active App Admin email addresses were found. Ask an App Admin to check the APP_ADMINS group before submitting this request.'
+          )
+          setSaving(false)
+          return
+        }
+      }
+
+      const createApprovalRequest = async (links: {
+        occurrenceId?: string
+        seriesId?: string
+      }) => {
+        const approvalRequestId = newGuid()
+        await Sfsures_reservationapprovalrequestsService.create({
+          sfsures_reservationapprovalrequestid: approvalRequestId,
+          sfsures_name: `${selectedResourceName} approval request ${formatShortDate(firstOccurrence.start)}`,
+          sfsures_approvallink: approvalLinkForRequest(publishedAppUrl, approvalRequestId),
+          sfsures_approvalstatus: APPROVAL_STATUS_PENDING,
+          sfsures_recordstatus: RECORD_STATUS_ACTIVE,
+          sfsures_requesttype: links.seriesId
+            ? APPROVAL_REQUEST_TYPE_SERIES
+            : APPROVAL_REQUEST_TYPE_SINGLE,
+          sfsures_requestedstart: toDataverseIso(firstOccurrence.start),
+          sfsures_requestedend: toDataverseIso(lastOccurrence.end),
+          sfsures_requestedresourcename: selectedResourceName,
+          sfsures_requestercomments: trimmedComments || null,
+          sfsures_requestername: currentUser.displayName,
+          sfsures_notificationrecipients: notificationRecipients,
+          sfsures_submittedon: new Date().toISOString(),
+          'sfsures_BookingOwner@odata.bind': `/sfsures_appusers(${selectedOwner.appUserId})`,
+          'sfsures_RequestedBy@odata.bind': `/sfsures_appusers(${currentUser.appUserId})`,
+          'sfsures_Resource@odata.bind': `/sfsures_resources(${selectedResourceId})`,
+          'ownerid@odata.bind': `/systemusers(${selectedOwner.systemUserId})`,
+          ...(links.occurrenceId
+            ? {
+                'sfsures_ReservationOccurrence@odata.bind':
+                  `/sfsures_reservationoccurrences(${links.occurrenceId})`,
+              }
+            : {}),
+          ...(links.seriesId
+            ? {
+                'sfsures_ReservationSeries@odata.bind':
+                  `/sfsures_reservationserieses(${links.seriesId})`,
+              }
+            : {}),
+          statecode: 0,
+          statuscode: 1,
+        } as unknown as Parameters<typeof Sfsures_reservationapprovalrequestsService.create>[0])
+      }
 
       let auditTargetId: string | undefined
       let affectedRowIds: string[] = []
@@ -1752,10 +1880,15 @@ export function BookingModal({
       } else if (isSeriesRequest) {
         let seriesId: string | null = null
         const createdOccurrenceIds: string[] = []
+        const reservationRecordStatus = requestRequiresApproval
+          ? RECORD_STATUS_PENDING
+          : RECORD_STATUS_ACTIVE
 
         try {
           const seriesResult = await Sfsures_reservationseriesesService.create(
-            makeSeriesFields() as unknown as Parameters<typeof Sfsures_reservationseriesesService.create>[0]
+            makeSeriesFields(true, reservationRecordStatus) as unknown as Parameters<
+              typeof Sfsures_reservationseriesesService.create
+            >[0]
           )
 
           seriesId = seriesResult.data?.sfsures_reservationseriesid ?? null
@@ -1765,7 +1898,14 @@ export function BookingModal({
 
           for (const occurrence of requestedOccurrences) {
             const occurrenceResult = await Sfsures_reservationoccurrencesService.create(
-              makeOccurrenceFields(occurrence, seriesId) as unknown as Parameters<
+              makeOccurrenceFields(
+                occurrence,
+                seriesId,
+                true,
+                selectedOwner.appUserId,
+                selectedOwner.systemUserId,
+                reservationRecordStatus
+              ) as unknown as Parameters<
                 typeof Sfsures_reservationoccurrencesService.create
               >[0]
             )
@@ -1777,6 +1917,9 @@ export function BookingModal({
           await saveCustomFieldAnswers({ seriesId }, [], false)
           for (const occurrenceId of createdOccurrenceIds) {
             await saveCustomFieldAnswers({ occurrenceId }, [], false)
+          }
+          if (requestRequiresApproval) {
+            await createApprovalRequest({ seriesId })
           }
         } catch (writeErr) {
           const cleanupTasks = [
@@ -1803,24 +1946,52 @@ export function BookingModal({
         setSuccessScope('series')
         setSuccessOccurrenceCount(requestedOccurrences.length)
         setSuccessRecurrenceSummary(recurrenceBuild.summary)
-        setSuccessKind('created')
+        setSuccessKind(requestRequiresApproval ? 'submitted' : 'created')
         resetRecurrenceFields()
       } else {
-        const result = await Sfsures_reservationoccurrencesService.create(
-          makeOccurrenceFields(firstOccurrence) as unknown as Parameters<typeof Sfsures_reservationoccurrencesService.create>[0]
-        )
-        const createdBookingId = result.data?.sfsures_reservationoccurrenceid ?? null
-        if (createdBookingId) {
-          await saveCustomFieldAnswers({ occurrenceId: createdBookingId }, [], false)
+        let createdBookingId: string | null = null
+        try {
+          const result = await Sfsures_reservationoccurrencesService.create(
+            makeOccurrenceFields(
+              firstOccurrence,
+              undefined,
+              true,
+              selectedOwner.appUserId,
+              selectedOwner.systemUserId,
+              requestRequiresApproval ? RECORD_STATUS_PENDING : RECORD_STATUS_ACTIVE
+            ) as unknown as Parameters<typeof Sfsures_reservationoccurrencesService.create>[0]
+          )
+          createdBookingId = result.data?.sfsures_reservationoccurrenceid ?? null
+          if (requestRequiresApproval && !createdBookingId) {
+            throw new Error('The pending reservation was created but Dataverse did not return its ID.')
+          }
+          if (createdBookingId) {
+            await saveCustomFieldAnswers({ occurrenceId: createdBookingId }, [], false)
+            if (requestRequiresApproval) {
+              await createApprovalRequest({ occurrenceId: createdBookingId })
+            }
+          }
+        } catch (writeErr) {
+          if (requestRequiresApproval && createdBookingId) {
+            try {
+              await Sfsures_reservationoccurrencesService.delete(createdBookingId)
+            } catch (cleanupErr) {
+              console.warn('Pending reservation cleanup failed after approval request create failed.', cleanupErr)
+            }
+          }
+
+          throw writeErr
         }
         setBookingId(createdBookingId)
         auditTargetId = createdBookingId ?? undefined
         affectedRowIds = createdBookingId ? [createdBookingId] : []
-        setSaveMode('edit')
+        if (!requestRequiresApproval) {
+          setSaveMode('edit')
+        }
         setSuccessScope('single')
         setSuccessOccurrenceCount(1)
         setSuccessRecurrenceSummary('')
-        setSuccessKind('created')
+        setSuccessKind(requestRequiresApproval ? 'submitted' : 'created')
         resetRecurrenceFields()
       }
 
@@ -1905,6 +2076,7 @@ export function BookingModal({
     selectedResource,
     selectedResourceType,
     reservableHourWindows,
+    publishedAppUrl,
     resetRecurrenceFields,
     onBooked,
   ])
@@ -1932,11 +2104,17 @@ export function BookingModal({
     ? 'Save Series'
     : saveMode === 'edit'
       ? 'Save Changes'
+      : isApprovalSubmission
+        ? isRecurringCreate
+          ? 'Submit Series for Approval'
+          : 'Submit for Approval'
       : isRecurringCreate
         ? 'Reserve Series'
         : 'Reserve'
   const savingLabel = isSeriesEdit
     ? 'Saving series...'
+    : isApprovalSubmission
+      ? 'Submitting...'
     : isRecurringCreate
       ? 'Reserving series...'
       : 'Reserving...'
@@ -2032,8 +2210,7 @@ export function BookingModal({
                 {successScope === 'series' && (
                   <div className={styles.summarySeriesBlock}>
                     <p className={styles.summaryLabel}>
-                      {successOccurrenceCount} reservations{' '}
-                      {successKind === 'updated' ? 'saved' : 'created'}
+                      {successOccurrenceCount} reservations {successSeriesAction}
                     </p>
                     <p className={styles.summarySeries}>{successRecurrenceSummary}</p>
                   </div>
@@ -2549,7 +2726,7 @@ export function BookingModal({
         <div className={styles.footer}>
           {mode === 'success' ? (
             <>
-              {successScope === 'single' && (
+              {successScope === 'single' && successKind !== 'submitted' && (
                 <button
                   className={styles.btnSecondary}
                   onClick={handleEditBooking}

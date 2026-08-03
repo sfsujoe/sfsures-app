@@ -122,6 +122,60 @@ export async function loadEligibleReservationOwners(
     .sort((a, b) => a.displayName.localeCompare(b.displayName))
 }
 
+export async function loadAppAdminNotificationRecipients(): Promise<string> {
+  const [usersResult, assignmentsResult, groupsResult] = await Promise.all([
+    Sfsures_appusersService.getAll({
+      select: [
+        'sfsures_appuserid',
+        'sfsures_email',
+        'sfsures_recordstatus',
+      ],
+      filter: `sfsures_recordstatus eq ${RECORD_STATUS_ACTIVE}`,
+      top: 500,
+    }),
+    Sfsures_usergroupassignmentsService.getAll({
+      select: ['_sfsures_user_value', '_sfsures_group_value'],
+      filter: 'statecode eq 0',
+      top: 5000,
+    }),
+    Sfsures_groupsService.getAll({
+      select: ['sfsures_groupid', 'sfsures_groupkey', 'sfsures_recordstatus'],
+      filter: `sfsures_recordstatus eq ${RECORD_STATUS_ACTIVE}`,
+      top: 500,
+    }),
+  ])
+
+  const appAdminGroupIds = new Set(
+    (groupsResult.data ?? [])
+      .filter(
+        (group) => group.sfsures_groupkey?.trim().toUpperCase() === APP_ADMIN_GROUP_KEY
+      )
+      .map((group) => group.sfsures_groupid)
+  )
+  const appAdminUserIds = new Set<string>()
+  for (const assignment of assignmentsResult.data ?? []) {
+    if (
+      assignment._sfsures_user_value &&
+      assignment._sfsures_group_value &&
+      appAdminGroupIds.has(assignment._sfsures_group_value)
+    ) {
+      appAdminUserIds.add(assignment._sfsures_user_value)
+    }
+  }
+
+  const uniqueEmails = new Map<string, string>()
+  for (const user of usersResult.data ?? []) {
+    if (!appAdminUserIds.has(user.sfsures_appuserid)) continue
+
+    const email = user.sfsures_email?.trim()
+    if (email) {
+      uniqueEmails.set(email.toLowerCase(), email)
+    }
+  }
+
+  return Array.from(uniqueEmails.values()).sort((a, b) => a.localeCompare(b)).join(';')
+}
+
 export function reservationOwnerSnapshot(owner: ReservationOwnerOption) {
   return {
     appUserId: owner.appUserId,

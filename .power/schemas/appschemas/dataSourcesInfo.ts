@@ -68,6 +68,13 @@ export const dataSourcesInfo = {
     "dataSourceType": "Dataverse",
     "apis": {}
   },
+  "sfsures_reservationapprovalrequests": {
+    "tableId": "",
+    "version": "",
+    "primaryKey": "sfsures_reservationapprovalrequestid",
+    "dataSourceType": "Dataverse",
+    "apis": {}
+  },
   "sfsures_reservationattributevalues": {
     "tableId": "",
     "version": "",

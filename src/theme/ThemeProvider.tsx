@@ -18,6 +18,7 @@ interface AppSettingsLimitFields {
   sfsures_applogo?: string | null
   sfsures_maxreservationoccurrences?: number | null
   sfsures_maxreservationspanweeks?: number | null
+  sfsures_publishedappurl?: string | null
 }
 
 const BASE_SETTINGS_SELECT = [
@@ -37,7 +38,7 @@ const LIMIT_SETTINGS_SELECT = [
   'sfsures_maxreservationspanweeks',
 ]
 
-const OPTIONAL_SETTINGS_SELECT = [APP_SETTINGS_LOGO_COLUMN, ...LIMIT_SETTINGS_SELECT]
+const OPTIONAL_SETTINGS_SELECT = [APP_SETTINGS_LOGO_COLUMN, ...LIMIT_SETTINGS_SELECT, 'sfsures_publishedappurl']
 
 function appNameFromSettings(value: string | undefined | null): string {
   const trimmed = value?.trim()
@@ -65,6 +66,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [reservationLimits, setReservationLimits] = useState<ReservationLimits>(
     DEFAULT_RESERVATION_LIMITS
   )
+  const [publishedAppUrl, setPublishedAppUrl] = useState('')
   const [loading, setLoading] = useState(true)
 
   const loadSettings = useCallback(async () => {
@@ -93,6 +95,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       if (!row) {
         setTheme(SFSU_DEFAULT_THEME)
         setReservationLimits(DEFAULT_RESERVATION_LIMITS)
+        setPublishedAppUrl('')
         return
       }
 
@@ -124,10 +127,12 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
           HARD_MAX_RESERVATION_SPAN_WEEKS
         ),
       })
+      setPublishedAppUrl(limitRow.sfsures_publishedappurl?.trim() ?? '')
     } catch (err) {
       console.warn('App Settings load failed — using SFSU defaults:', err)
       setTheme(SFSU_DEFAULT_THEME)
       setReservationLimits(DEFAULT_RESERVATION_LIMITS)
+      setPublishedAppUrl('')
     } finally {
       setLoading(false)
     }
@@ -144,7 +149,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   return (
     <ThemeContext.Provider
-      value={{ theme, reservationLimits, loading, reloadSettings }}
+      value={{ theme, reservationLimits, publishedAppUrl, loading, reloadSettings }}
     >
       {children}
     </ThemeContext.Provider>

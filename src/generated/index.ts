@@ -15,6 +15,7 @@ export * as Sfsures_groupresourceaccessesModel from './models/Sfsures_groupresou
 export * as Sfsures_groupresourcetypeaccessesModel from './models/Sfsures_groupresourcetypeaccessesModel';
 export * as Sfsures_groupsModel from './models/Sfsures_groupsModel';
 export * as Sfsures_reservablehourwindowsModel from './models/Sfsures_reservablehourwindowsModel';
+export * as Sfsures_reservationapprovalrequestsModel from './models/Sfsures_reservationapprovalrequestsModel';
 export * as Sfsures_reservationattributevaluesModel from './models/Sfsures_reservationattributevaluesModel';
 export * as Sfsures_reservationoccurrencesModel from './models/Sfsures_reservationoccurrencesModel';
 export * as Sfsures_reservationseriesesModel from './models/Sfsures_reservationseriesesModel';
@@ -36,6 +37,7 @@ export * from './services/Sfsures_groupresourceaccessesService';
 export * from './services/Sfsures_groupresourcetypeaccessesService';
 export * from './services/Sfsures_groupsService';
 export * from './services/Sfsures_reservablehourwindowsService';
+export * from './services/Sfsures_reservationapprovalrequestsService';
 export * from './services/Sfsures_reservationattributevaluesService';
 export * from './services/Sfsures_reservationoccurrencesService';
 export * from './services/Sfsures_reservationseriesesService';

@@ -32,6 +32,7 @@ export interface Sfsures_resourcetypesBase {
   sfsures_name: string;
   sfsures_notifyowner?: boolean;
   sfsures_reminderleadtimehrs?: number;
+  sfsures_requiresapproval?: boolean;
   sfsures_reservablehoursmode: Sfsures_resourcetypessfsures_reservablehoursmode;
   sfsures_resourcetypeid: string;
   sfsures_status?: Sfsures_resourcetypessfsures_status;
@@ -54,6 +55,7 @@ export interface Sfsures_resourcetypes extends Sfsures_resourcetypesBase {
   modifiedonbehalfbyyominame: string;
   organizationidname: string;
   sfsures_notifyownername?: string;
+  sfsures_requiresapprovalname?: string;
   sfsures_reservablehoursmodename?: string;
   sfsures_statusname?: string;
   statecodename?: string;

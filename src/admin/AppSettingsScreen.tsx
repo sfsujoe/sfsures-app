@@ -30,6 +30,7 @@ const ResourcePhotoCropper = lazy(() => import('./ResourcePhotoCropper'))
 
 interface SettingsForm {
   appName: string
+  publishedAppUrl: string
   selectedThemeName: string
   maxOccurrences: string
   maxSpanWeeks: string
@@ -37,6 +38,7 @@ interface SettingsForm {
 
 interface ParsedSettings {
   appName: string
+  publishedAppUrl: string
   maxOccurrences: number
   maxSpanWeeks: number
 }
@@ -60,18 +62,21 @@ const SETTINGS_SELECT = [
   'sfsures_name',
   'sfsures_selectedthemename',
   'sfsures_isactive',
+  'sfsures_publishedappurl',
   'sfsures_maxreservationoccurrences',
   'sfsures_maxreservationspanweeks',
 ]
 
 const LEGACY_SETTINGS_ROW_NAME = 'SFSU Reservation Settings'
 const MAX_APP_NAME_LENGTH = 80
+const MAX_PUBLISHED_APP_URL_LENGTH = 2000
 const LOGO_ACCEPT = '.jpg,.jpeg,.png,.gif,.bmp,image/jpeg,image/png,image/gif,image/bmp'
 const LOGO_MAX_BYTES = 10 * 1024 * 1024
 const SUPPORTED_LOGO_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/bmp'])
 
 const DEFAULT_FORM: SettingsForm = {
   appName: SFSU_DEFAULT_APP_NAME,
+  publishedAppUrl: '',
   selectedThemeName: SFSU_DEFAULT_THEME.selectedThemeName,
   maxOccurrences: String(DEFAULT_RESERVATION_LIMITS.maxOccurrences),
   maxSpanWeeks: String(DEFAULT_RESERVATION_LIMITS.maxSpanWeeks),
@@ -143,6 +148,7 @@ function formFromRow(row: Sfsures_appsettingses | undefined): SettingsForm {
 
   return {
     appName: appNameFromRow(row.sfsures_name),
+    publishedAppUrl: row.sfsures_publishedappurl?.trim() ?? '',
     selectedThemeName: selectedPreset.name,
     maxOccurrences: String(
       limitedNumber(
@@ -172,12 +178,17 @@ function logoUrlFromRow(row: Sfsures_appsettingses | undefined, fallback: string
 
 function validateForm(form: SettingsForm): { error: string } | { values: ParsedSettings } {
   const appName = form.appName.trim()
+  const publishedAppUrl = form.publishedAppUrl.trim()
   if (!appName) {
     return { error: 'App Name is required.' }
   }
 
   if (appName.length > MAX_APP_NAME_LENGTH) {
     return { error: `App Name must be ${MAX_APP_NAME_LENGTH} characters or fewer.` }
+  }
+
+  if (publishedAppUrl.length > MAX_PUBLISHED_APP_URL_LENGTH) {
+    return { error: `Published App URL must be ${MAX_PUBLISHED_APP_URL_LENGTH} characters or fewer.` }
   }
 
   const maxOccurrences = wholeNumberFromInput(form.maxOccurrences)
@@ -205,6 +216,7 @@ function validateForm(form: SettingsForm): { error: string } | { values: ParsedS
   return {
     values: {
       appName,
+      publishedAppUrl,
       maxOccurrences,
       maxSpanWeeks,
     },
@@ -365,6 +377,7 @@ export function AppSettingsScreen() {
     const selectedPreset = themePresetByName(form.selectedThemeName)
     const payload = {
       sfsures_name: values.appName,
+      sfsures_publishedappurl: values.publishedAppUrl || null,
       sfsures_primarycolor: selectedPreset.primaryColor,
       sfsures_accentcolor: selectedPreset.accentColor,
       sfsures_backgroundcolor: selectedPreset.backgroundColor,
@@ -535,6 +548,20 @@ export function AppSettingsScreen() {
                   value={form.appName}
                   onChange={(event) => updateField('appName', event.target.value)}
                 />
+              </label>
+              <label className={styles.fieldWide}>
+                <span>Published App URL</span>
+                <input
+                  className={styles.input}
+                  type="url"
+                  maxLength={MAX_PUBLISHED_APP_URL_LENGTH}
+                  value={form.publishedAppUrl}
+                  placeholder="https://apps.powerapps.com/play/..."
+                  onChange={(event) => updateField('publishedAppUrl', event.target.value)}
+                />
+                <span className={styles.fieldHint}>
+                  Include hidenavbar=true before any approval route.
+                </span>
               </label>
               <div className={styles.fieldWide}>
                 <span>App Logo</span>

@@ -230,6 +230,37 @@
           "x-ms-dataverse-type": "IntegerType",
           "x-ms-schema-name": "sfsures_Reminderleadtimehrs"
         },
+        "sfsures_requiresapproval": {
+          "type": "string",
+          "title": "Requires Approval",
+          "x-ms-dataverse-attribute": "sfsures_requiresapproval",
+          "x-ms-dataverse-type": "BooleanType",
+          "x-ms-schema-name": "sfsures_RequiresApproval",
+          "enum": [
+            "No",
+            "Yes"
+          ],
+          "x-ms-enum-values": [
+            0,
+            1
+          ],
+          "Color": [
+            null,
+            null
+          ],
+          "x-ms-optionsetmetadataid": "f52f94a8-ea8d-f111-ab0e-7ced8d3d4f6a",
+          "x-ms-isGlobal": false,
+          "x-ms-optionsetdisplayname": "Requires Approval",
+          "x-ms-optionSetType": "Boolean"
+        },
+        "sfsures_requiresapprovalname": {
+          "type": "string",
+          "title": "sfsures_requiresapprovalname",
+          "x-ms-dataverse-attribute": "sfsures_requiresapprovalname",
+          "x-ms-dataverse-type": "VirtualType",
+          "x-ms-schema-name": "sfsures_requiresapprovalName",
+          "x-ms-read-only": true
+        },
         "sfsures_reservablehoursmode": {
           "type": "string",
           "title": "Reservable Hours Mode",

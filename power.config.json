@@ -112,6 +112,11 @@
           "entitySetName": "sfsures_reservablehourwindows",
           "logicalName": "sfsures_reservablehourwindow",
           "isHidden": false
+        },
+        "reservationapprovalrequests": {
+          "entitySetName": "sfsures_reservationapprovalrequests",
+          "logicalName": "sfsures_reservationapprovalrequest",
+          "isHidden": false
         }
       },
       "environmentVariableName": ""

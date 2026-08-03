@@ -28,6 +28,7 @@ export interface Sfsures_appsettingsesBase {
   sfsures_maxreservationspanweeks?: number;
   sfsures_name: string;
   sfsures_primarycolor?: string;
+  sfsures_publishedappurl?: string;
   sfsures_selectedthemename?: string;
   statecode: Sfsures_appsettingsesstatecode;
   statuscode?: Sfsures_appsettingsesstatuscode;

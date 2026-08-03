@@ -4,7 +4,8 @@
  */
 export const Sfsures_reservationoccurrencessfsures_recordstatus = {
   997330000: 'Active',
-  997330001: 'Cancelled'
+  997330001: 'Cancelled',
+  997330002: 'Pending'
 } as const;
 export type Sfsures_reservationoccurrencessfsures_recordstatus = keyof typeof Sfsures_reservationoccurrencessfsures_recordstatus;
 export const Sfsures_reservationoccurrencesstatecode = {

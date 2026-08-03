@@ -354,13 +354,16 @@
           "x-ms-schema-name": "sfsures_RecordStatus",
           "enum": [
             "Active",
-            "Cancelled"
+            "Cancelled",
+            "Pending"
           ],
           "x-ms-enum-values": [
             997330000,
-            997330001
+            997330001,
+            997330002
           ],
           "Color": [
+            null,
             null,
             null
           ],

@@ -55,6 +55,7 @@ import { Sfsures_reservablehourwindowsService } from '../generated/services/Sfsu
 import { Sfsures_resourceattributevaluesService } from '../generated/services/Sfsures_resourceattributevaluesService'
 import { Sfsures_reservationattributevaluesService } from '../generated/services/Sfsures_reservationattributevaluesService'
 import { Sfsures_attributedefinitionsService } from '../generated/services/Sfsures_attributedefinitionsService'
+import { Sfsures_reservationapprovalrequestsService } from '../generated/services/Sfsures_reservationapprovalrequestsService'
 import { Office365UsersService } from '../generated/services/Office365UsersService'
 import type {
   Sfsures_resourcessfsures_calendarcolor,
@@ -96,6 +97,26 @@ interface OccurrenceRow {
   _sfsures_series_value?: string
   '_sfsures_resource_value@OData.Community.Display.V1.FormattedValue'?: string
   sfsures_recordstatus?: number
+}
+
+interface ApprovalRequestRow {
+  sfsures_reservationapprovalrequestid?: string
+  sfsures_name?: string
+  sfsures_approvalstatus?: number
+  sfsures_decidedon?: string
+  sfsures_decisioncomments?: string
+  sfsures_decisionsource?: number
+  sfsures_requestedend?: string
+  sfsures_requestedstart?: string
+  sfsures_requestercomments?: string
+  sfsures_requesttype?: number
+  sfsures_submittedon?: string
+  _sfsures_bookingowner_value?: string
+  _sfsures_decidedby_value?: string
+  _sfsures_requestedby_value?: string
+  _sfsures_reservationoccurrence_value?: string
+  _sfsures_reservationseries_value?: string
+  _sfsures_resource_value?: string
 }
 
 interface BlackoutRow {
@@ -166,6 +187,31 @@ interface ReservationInfoDetails {
   customFields: DetailValue[]
 }
 
+interface ApprovalReviewRequest {
+  id: string
+  name: string
+  status: number
+  requestType: number
+  resourceId: string
+  occurrenceId: string
+  seriesId: string
+  bookingOwnerId: string
+  requestedById: string
+  decidedById: string
+  requestedStart: string
+  requestedEnd: string
+  requesterComments: string
+  decisionComments: string
+  decidedOn: string
+}
+
+interface ApprovalReviewState {
+  requestId: string
+  status: 'loading' | 'ready' | 'error'
+  request: ApprovalReviewRequest | null
+  error: string
+}
+
 interface ResourceInfoDetails {
   status: 'idle' | 'loading' | 'ready' | 'error'
   resourceAttributes: DetailValue[]
@@ -182,6 +228,11 @@ type DeleteConfirmMode = 'occurrence' | 'series'
 
 const RECORD_STATUS_ACTIVE = 997330000
 const RECORD_STATUS_CANCELLED = 997330001
+const RECORD_STATUS_PENDING = 997330002
+const APPROVAL_STATUS_PENDING = 997330000
+const APPROVAL_STATUS_APPROVED = 997330001
+const APPROVAL_STATUS_DENIED = 997330002
+const APPROVAL_DECISION_SOURCE_APP = 997330000
 const ATTRIBUTE_APPLIES_TO_RESOURCE = 997330000
 const RESOURCE_TYPE_RESERVABLE_ANY_TIME = 997330000
 const RESOURCE_TYPE_RESERVABLE_MF_8_5 = 997330001
@@ -285,6 +336,7 @@ function occurrenceToEvent(
       resourceTypeId: resourceTypesByResourceId.get(row._sfsures_resource_value ?? '') ?? '',
       seriesId: row._sfsures_series_value ?? '',
       comments: row.sfsures_comments?.trim() ?? '',
+      recordStatus: row.sfsures_recordstatus ?? RECORD_STATUS_ACTIVE,
       type: 'occurrence' as const,
       reason: null,
     },
@@ -432,8 +484,28 @@ function reservationSeriesIdFor(event: EventInput | null): string {
   return typeof seriesId === 'string' ? seriesId : ''
 }
 
+function reservationRecordStatusFor(event: EventInput | null): number {
+  const recordStatus = event?.extendedProps?.recordStatus
+  return typeof recordStatus === 'number' ? recordStatus : RECORD_STATUS_ACTIVE
+}
+
 function normalizeDataverseId(value: string | undefined | null): string {
   return (value ?? '').replace(/[{}]/g, '').toLowerCase()
+}
+
+function approvalRequestIdFromHash(): string {
+  const match = window.location.hash.match(/^#\/approval\/?([^/?#]*)/)
+  return normalizeDataverseId(decodeURIComponent(match?.[1] ?? ''))
+}
+
+function clearApprovalHashIfCurrent(requestId: string) {
+  if (approvalRequestIdFromHash() !== normalizeDataverseId(requestId)) return
+
+  if (window.history.replaceState) {
+    window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`)
+  } else {
+    window.location.hash = ''
+  }
 }
 
 function rowsFromSettled<T>(
@@ -772,6 +844,12 @@ export function CalendarScreen({ onOpenReports, onOpenAdmin }: CalendarScreenPro
     resourceAttributes: [],
     customFields: [],
   })
+  const [approvalReview, setApprovalReview] = useState<ApprovalReviewState | null>(null)
+  const [approvalDecisionComments, setApprovalDecisionComments] = useState('')
+  const [approvalDecisionSaving, setApprovalDecisionSaving] = useState(false)
+  const [approvalRouteRequestId, setApprovalRouteRequestId] = useState(() =>
+    approvalRequestIdFromHash()
+  )
   const [resourceInfoDetails, setResourceInfoDetails] = useState<ResourceInfoDetails>({
     status: 'idle',
     resourceAttributes: [],
@@ -1093,6 +1171,15 @@ export function CalendarScreen({ onOpenReports, onOpenAdmin }: CalendarScreenPro
       document.removeEventListener('keydown', handleKeyDown)
     }
   }, [helpMenuOpen])
+
+  useEffect(() => {
+    function handleHashChange() {
+      setApprovalRouteRequestId(approvalRequestIdFromHash())
+    }
+
+    window.addEventListener('hashchange', handleHashChange)
+    return () => window.removeEventListener('hashchange', handleHashChange)
+  }, [])
 
   useEffect(() => {
     if (!selectedEvent || selectedEvent.extendedProps?.type !== 'occurrence') {
@@ -1547,6 +1634,239 @@ export function CalendarScreen({ onOpenReports, onOpenAdmin }: CalendarScreenPro
     [currentUser, theme.primaryColor, theme.accentColor]
   )
 
+  const openApprovalReview = useCallback(
+    async (requestId: string) => {
+      const normalizedRequestId = normalizeDataverseId(requestId)
+      if (!normalizedRequestId) return
+
+      if (!currentUser?.isAppAdmin) {
+        setErrorMessage('Only app admins can review reservation approval requests.')
+        return
+      }
+
+      setApprovalReview({
+        requestId: normalizedRequestId,
+        status: 'loading',
+        request: null,
+        error: '',
+      })
+      setApprovalDecisionComments('')
+      setApprovalDecisionSaving(false)
+      setReservationActionError('')
+      setDeleteConfirmMode(null)
+      setReservationInfoDetails({
+        status: 'loading',
+        resourceAttributes: [],
+        customFields: [],
+      })
+
+      try {
+        const approvalResult = await Sfsures_reservationapprovalrequestsService.get(
+          normalizedRequestId,
+          {
+            select: [
+              'sfsures_reservationapprovalrequestid',
+              'sfsures_name',
+              'sfsures_approvalstatus',
+              'sfsures_decidedon',
+              'sfsures_decisioncomments',
+              'sfsures_decisionsource',
+              'sfsures_requestedend',
+              'sfsures_requestedstart',
+              'sfsures_requestercomments',
+              'sfsures_requesttype',
+              'sfsures_submittedon',
+              '_sfsures_bookingowner_value',
+              '_sfsures_decidedby_value',
+              '_sfsures_requestedby_value',
+              '_sfsures_reservationoccurrence_value',
+              '_sfsures_reservationseries_value',
+              '_sfsures_resource_value',
+            ],
+          }
+        )
+        const approvalRow = approvalResult.data as ApprovalRequestRow | undefined
+
+        if (!approvalRow?.sfsures_reservationapprovalrequestid) {
+          throw new Error('Approval request not found.')
+        }
+
+        const occurrenceId = normalizeDataverseId(
+          approvalRow._sfsures_reservationoccurrence_value
+        )
+        const seriesId = normalizeDataverseId(approvalRow._sfsures_reservationseries_value)
+        const resourceId = normalizeDataverseId(approvalRow._sfsures_resource_value)
+        let occurrenceRow: OccurrenceRow | null = null
+
+        if (occurrenceId) {
+          const occurrenceResult = await Sfsures_reservationoccurrencesService.get(occurrenceId, {
+            select: [
+              'sfsures_reservationoccurrenceid',
+              'sfsures_name',
+              'sfsures_comments',
+              'sfsures_start',
+              'sfsures_end',
+              'sfsures_recordstatus',
+              '_sfsures_resource_value',
+              '_sfsures_bookingowner_value',
+              '_sfsures_series_value',
+            ],
+          })
+          occurrenceRow = occurrenceResult.data as OccurrenceRow | null
+        } else if (seriesId) {
+          const occurrenceResult = await Sfsures_reservationoccurrencesService.getAll({
+            select: [
+              'sfsures_reservationoccurrenceid',
+              'sfsures_name',
+              'sfsures_comments',
+              'sfsures_start',
+              'sfsures_end',
+              'sfsures_recordstatus',
+              '_sfsures_resource_value',
+              '_sfsures_bookingowner_value',
+              '_sfsures_series_value',
+            ],
+            filter: `statecode eq 0 and _sfsures_series_value eq ${seriesId}`,
+            orderBy: ['sfsures_start asc'],
+            top: 1,
+          })
+          occurrenceRow = ((occurrenceResult.data ?? []) as OccurrenceRow[])[0] ?? null
+        }
+
+        const effectiveResourceId = normalizeDataverseId(
+          occurrenceRow?._sfsures_resource_value ?? resourceId
+        )
+        const effectiveOwnerId = normalizeDataverseId(
+          occurrenceRow?._sfsures_bookingowner_value ??
+            approvalRow._sfsures_bookingowner_value
+        )
+        let resourceName = 'Resource'
+        let resourceTypeId = ''
+        let resourceColor = resourceColorForBackground(theme.primaryColor)
+
+        const cachedResource = viewResources.find(
+          (resource) => normalizeDataverseId(resource.id) === effectiveResourceId
+        )
+        if (cachedResource) {
+          resourceName = cachedResource.name
+          resourceTypeId = cachedResource.resourceTypeId
+        }
+
+        if (effectiveResourceId) {
+          try {
+            const resourceResult = await Sfsures_resourcesService.get(effectiveResourceId, {
+              select: [
+                'sfsures_resourceid',
+                'sfsures_name',
+                'sfsures_calendarcolor',
+                '_sfsures_resourcetype_value',
+              ],
+            })
+            const resourceRow = resourceResult.data as ResourceRow | undefined
+            resourceName = resourceRow?.sfsures_name?.trim() || resourceName
+            resourceTypeId = resourceRow?._sfsures_resourcetype_value ?? resourceTypeId
+            resourceColor =
+              resourceColorByValue(resourceRow?.sfsures_calendarcolor) ?? resourceColor
+          } catch (err) {
+            console.warn('Approval review resource details could not be loaded:', err)
+          }
+        }
+
+        if (!occurrenceRow) {
+          occurrenceRow = {
+            sfsures_reservationoccurrenceid: '',
+            sfsures_name: approvalRow.sfsures_name,
+            sfsures_comments: approvalRow.sfsures_requestercomments,
+            sfsures_start: approvalRow.sfsures_requestedstart,
+            sfsures_end: approvalRow.sfsures_requestedend,
+            sfsures_recordstatus:
+              approvalRow.sfsures_approvalstatus === APPROVAL_STATUS_PENDING
+                ? RECORD_STATUS_PENDING
+                : RECORD_STATUS_ACTIVE,
+            _sfsures_resource_value: effectiveResourceId,
+            _sfsures_bookingowner_value: effectiveOwnerId,
+            _sfsures_series_value: seriesId,
+          }
+        }
+
+        occurrenceRow = {
+          ...occurrenceRow,
+          _sfsures_resource_value: occurrenceRow._sfsures_resource_value ?? effectiveResourceId,
+          _sfsures_bookingowner_value:
+            occurrenceRow._sfsures_bookingowner_value ?? effectiveOwnerId,
+          _sfsures_series_value: occurrenceRow._sfsures_series_value ?? seriesId,
+          '_sfsures_resource_value@OData.Community.Display.V1.FormattedValue': resourceName,
+        }
+
+        const reviewRequest: ApprovalReviewRequest = {
+          id: approvalRow.sfsures_reservationapprovalrequestid,
+          name: approvalRow.sfsures_name?.trim() || 'Reservation approval request',
+          status: approvalRow.sfsures_approvalstatus ?? APPROVAL_STATUS_PENDING,
+          requestType: approvalRow.sfsures_requesttype ?? 997330000,
+          resourceId: effectiveResourceId,
+          occurrenceId: normalizeDataverseId(occurrenceRow.sfsures_reservationoccurrenceid),
+          seriesId,
+          bookingOwnerId: effectiveOwnerId,
+          requestedById: normalizeDataverseId(approvalRow._sfsures_requestedby_value),
+          decidedById: normalizeDataverseId(approvalRow._sfsures_decidedby_value),
+          requestedStart: approvalRow.sfsures_requestedstart ?? '',
+          requestedEnd: approvalRow.sfsures_requestedend ?? '',
+          requesterComments: approvalRow.sfsures_requestercomments?.trim() ?? '',
+          decisionComments: approvalRow.sfsures_decisioncomments?.trim() ?? '',
+          decidedOn: approvalRow.sfsures_decidedon ?? '',
+        }
+
+        const event = occurrenceToEvent(
+          occurrenceRow,
+          new Map([[effectiveResourceId, resourceColor]]),
+          new Map([[effectiveResourceId, resourceTypeId]]),
+          resourceColor
+        )
+
+        setApprovalReview({
+          requestId: normalizedRequestId,
+          status: 'ready',
+          request: reviewRequest,
+          error: '',
+        })
+        setSelectedEvent(event)
+
+        const calendarApi = calendarRef.current?.getApi()
+        const eventStart = new Date((event.start as string) || reviewRequest.requestedStart)
+        if (calendarApi && !isNaN(eventStart.getTime())) {
+          calendarApi.gotoDate(eventStart)
+        }
+      } catch (err) {
+        console.error('Approval review load failed:', err)
+        setApprovalReview({
+          requestId: normalizedRequestId,
+          status: 'error',
+          request: null,
+          error:
+            err instanceof Error
+              ? err.message
+              : 'This approval request could not be loaded.',
+        })
+        setSelectedEvent(null)
+        setReservationInfoDetails({
+          status: 'error',
+          resourceAttributes: [],
+          customFields: [],
+        })
+      }
+    },
+    [currentUser?.isAppAdmin, theme.primaryColor, viewResources]
+  )
+
+  useEffect(() => {
+    if (!approvalRouteRequestId) return
+    if (approvalReview?.requestId === approvalRouteRequestId && approvalReview.status !== 'error') {
+      return
+    }
+
+    void openApprovalReview(approvalRouteRequestId)
+  }, [approvalRouteRequestId, approvalReview?.requestId, approvalReview?.status, openApprovalReview])
+
   // Initial load: ±90 days around today.
   useEffect(() => {
     const now = new Date()
@@ -1591,7 +1911,14 @@ export function CalendarScreen({ onOpenReports, onOpenAdmin }: CalendarScreenPro
   }, [loadRange])
 
   const closeReservationInfo = useCallback(() => {
+    if (approvalReview?.requestId) {
+      clearApprovalHashIfCurrent(approvalReview.requestId)
+    }
     setSelectedEvent(null)
+    setApprovalReview(null)
+    setApprovalDecisionComments('')
+    setApprovalDecisionSaving(false)
+    setApprovalRouteRequestId('')
     setReservationInfoDetails({
       status: 'idle',
       resourceAttributes: [],
@@ -1601,7 +1928,7 @@ export function CalendarScreen({ onOpenReports, onOpenAdmin }: CalendarScreenPro
     setDeletingReservation(false)
     setLoadingSeriesEdit(false)
     setReservationActionError('')
-  }, [])
+  }, [approvalReview?.requestId])
 
   const closeResourceInfo = useCallback(() => {
     setSelectedViewResource(null)
@@ -2146,6 +2473,142 @@ export function CalendarScreen({ onOpenReports, onOpenAdmin }: CalendarScreenPro
     selectedEvent,
   ])
 
+  const handleApprovalDecision = useCallback(
+    async (decision: 'approved' | 'denied') => {
+      const request = approvalReview?.request
+      if (!request || !currentUser?.isAppAdmin) {
+        return
+      }
+
+      if (request.status !== APPROVAL_STATUS_PENDING) {
+        setReservationActionError('This approval request has already been decided.')
+        return
+      }
+
+      setApprovalDecisionSaving(true)
+      setReservationActionError('')
+
+      try {
+        const latestResult = await Sfsures_reservationapprovalrequestsService.get(request.id, {
+          select: ['sfsures_reservationapprovalrequestid', 'sfsures_approvalstatus'],
+        })
+        const latest = latestResult.data as ApprovalRequestRow | undefined
+        if (latest?.sfsures_approvalstatus !== APPROVAL_STATUS_PENDING) {
+          setApprovalReview({
+            ...approvalReview,
+            request: {
+              ...request,
+              status: latest?.sfsures_approvalstatus ?? request.status,
+            },
+          })
+          setReservationActionError('This approval request has already been decided.')
+          return
+        }
+
+        const nextApprovalStatus =
+          decision === 'approved' ? APPROVAL_STATUS_APPROVED : APPROVAL_STATUS_DENIED
+        const nextReservationStatus =
+          decision === 'approved' ? RECORD_STATUS_ACTIVE : RECORD_STATUS_CANCELLED
+        const decidedOn = new Date().toISOString()
+        const trimmedComments = approvalDecisionComments.trim()
+        const requestUpdate: Record<string, unknown> = {
+          sfsures_approvalstatus: nextApprovalStatus,
+          sfsures_decisionsource: APPROVAL_DECISION_SOURCE_APP,
+          sfsures_decidedon: decidedOn,
+          sfsures_decisioncomments: trimmedComments,
+        }
+
+        if (currentUser.appUserId) {
+          requestUpdate['sfsures_DecidedBy@odata.bind'] =
+            `/sfsures_appusers(${currentUser.appUserId})`
+        }
+
+        if (request.seriesId) {
+          const occurrenceResult = await Sfsures_reservationoccurrencesService.getAll({
+            select: ['sfsures_reservationoccurrenceid'],
+            filter:
+              `statecode eq 0 and _sfsures_series_value eq ${request.seriesId}` +
+              ` and sfsures_recordstatus eq ${RECORD_STATUS_PENDING}`,
+            top: 500,
+          })
+          const pendingOccurrenceIds = ((occurrenceResult.data ?? []) as OccurrenceRow[])
+            .map((row) => row.sfsures_reservationoccurrenceid)
+            .filter((id): id is string => typeof id === 'string' && id.length > 0)
+
+          await Promise.all(
+            pendingOccurrenceIds.map((occurrenceId) =>
+              Sfsures_reservationoccurrencesService.update(
+                occurrenceId,
+                {
+                  sfsures_recordstatus: nextReservationStatus,
+                } as unknown as Parameters<typeof Sfsures_reservationoccurrencesService.update>[1]
+              )
+            )
+          )
+
+          await Sfsures_reservationseriesesService.update(
+            request.seriesId,
+            {
+              sfsures_recordstatus: nextReservationStatus,
+            } as unknown as Parameters<typeof Sfsures_reservationseriesesService.update>[1]
+          )
+        } else if (request.occurrenceId) {
+          await Sfsures_reservationoccurrencesService.update(
+            request.occurrenceId,
+            {
+              sfsures_recordstatus: nextReservationStatus,
+            } as unknown as Parameters<typeof Sfsures_reservationoccurrencesService.update>[1]
+          )
+        }
+
+        await Sfsures_reservationapprovalrequestsService.update(
+          request.id,
+          requestUpdate as unknown as Parameters<typeof Sfsures_reservationapprovalrequestsService.update>[1]
+        )
+
+        const nextRequest = {
+          ...request,
+          status: nextApprovalStatus,
+          decisionComments: trimmedComments,
+          decidedOn,
+          decidedById: currentUser.appUserId,
+        }
+
+        setApprovalReview({
+          requestId: request.id,
+          status: 'ready',
+          request: nextRequest,
+          error: '',
+        })
+        setSelectedEvent((current) =>
+          current
+            ? {
+                ...current,
+                extendedProps: {
+                  ...current.extendedProps,
+                  recordStatus: nextReservationStatus,
+                },
+              }
+            : current
+        )
+        refreshCalendar()
+      } catch (err) {
+        console.error('Approval decision failed:', err)
+        const detail = err instanceof Error ? err.message : 'Dataverse rejected the update.'
+        setReservationActionError(`Approval decision failed: ${detail}`)
+      } finally {
+        setApprovalDecisionSaving(false)
+      }
+    },
+    [
+      approvalDecisionComments,
+      approvalReview,
+      currentUser?.appUserId,
+      currentUser?.isAppAdmin,
+      refreshCalendar,
+    ]
+  )
+
   const selectedRangeIsOutsideReservableHours = useCallback(
     (start: Date, end: Date) => {
       if (
@@ -2202,10 +2665,24 @@ export function CalendarScreen({ onOpenReports, onOpenAdmin }: CalendarScreenPro
   const selectedEventComments = reservationCommentsFor(selectedEvent)
   const selectedEventSeriesId = reservationSeriesIdFor(selectedEvent)
   const selectedEventOwnerId = reservationOwnerIdFor(selectedEvent)
+  const selectedEventRecordStatus = reservationRecordStatusFor(selectedEvent)
+  const selectedEventIsPending = selectedEventRecordStatus === RECORD_STATUS_PENDING
+  const activeApprovalRequest = approvalReview?.request ?? null
+  const approvalReviewIsPending = activeApprovalRequest?.status === APPROVAL_STATUS_PENDING
+  const approvalReviewStatusText =
+    activeApprovalRequest?.status === APPROVAL_STATUS_APPROVED
+      ? 'Approved'
+      : activeApprovalRequest?.status === APPROVAL_STATUS_DENIED
+        ? 'Denied'
+        : activeApprovalRequest?.status === 997330003
+          ? 'Cancelled'
+          : 'Pending'
   const selectedEventIsOwnedByCurrentUser =
     !!selectedEventOwnerId && selectedEventOwnerId === currentUser?.appUserId
   const selectedEventCanManage =
     selectedEvent?.extendedProps?.type === 'occurrence' &&
+    !selectedEventIsPending &&
+    !activeApprovalRequest &&
     (selectedEventIsOwnedByCurrentUser || currentUser?.isAppAdmin === true)
   const selectedEventDeleteLabel = selectedEventSeriesId ? 'Delete occurrence' : 'Delete reservation'
   const deleteConfirmTitle =
@@ -2493,7 +2970,7 @@ export function CalendarScreen({ onOpenReports, onOpenAdmin }: CalendarScreenPro
                   className={styles.popoverLabel}
                   style={{ color: theme.primaryColor }}
                 >
-                  Reservation
+                  {activeApprovalRequest ? 'Approval review' : 'Reservation'}
                 </p>
                 <h2 id="event-popover-title" className={styles.popoverTitle}>
                   {selectedEvent.title as string}
@@ -2506,6 +2983,44 @@ export function CalendarScreen({ onOpenReports, onOpenAdmin }: CalendarScreenPro
                 </p>
                 {selectedEventSeriesId && (
                   <p className={styles.seriesBadge}>Recurring series</p>
+                )}
+                {activeApprovalRequest && (
+                  <section className={styles.approvalReviewSection} aria-label="Approval request">
+                    <div className={styles.approvalStatusRow}>
+                      <span
+                        className={
+                          approvalReviewIsPending
+                            ? styles.approvalStatusPending
+                            : activeApprovalRequest.status === APPROVAL_STATUS_APPROVED
+                              ? styles.approvalStatusApproved
+                              : styles.approvalStatusDenied
+                        }
+                      >
+                        {approvalReviewStatusText}
+                      </span>
+                      {activeApprovalRequest.decidedOn && (
+                        <span className={styles.approvalMeta}>
+                          Decided {formatEventDateTime(activeApprovalRequest.decidedOn)}
+                        </span>
+                      )}
+                    </div>
+                    {activeApprovalRequest.requesterComments && (
+                      <>
+                        <p className={styles.commentsLabel}>Requester comments</p>
+                        <p className={styles.commentsText}>
+                          {activeApprovalRequest.requesterComments}
+                        </p>
+                      </>
+                    )}
+                    {activeApprovalRequest.decisionComments && (
+                      <>
+                        <p className={styles.commentsLabel}>Decision comments</p>
+                        <p className={styles.commentsText}>
+                          {activeApprovalRequest.decisionComments}
+                        </p>
+                      </>
+                    )}
+                  </section>
                 )}
                 {selectedEventComments && (
                   <section className={styles.commentsSection} aria-label="Reservation comments">
@@ -2686,6 +3201,50 @@ export function CalendarScreen({ onOpenReports, onOpenAdmin }: CalendarScreenPro
                           </button>
                         )}
                       </div>
+                    )}
+                  </section>
+                )}
+                {activeApprovalRequest && currentUser?.isAppAdmin && (
+                  <section className={styles.actionSection} aria-label="Approval decision">
+                    {reservationActionError && (
+                      <p className={styles.actionError} role="alert">
+                        {reservationActionError}
+                      </p>
+                    )}
+                    {approvalReviewIsPending ? (
+                      <>
+                        <label className={styles.decisionCommentLabel}>
+                          Decision comments
+                          <textarea
+                            className={styles.decisionCommentInput}
+                            value={approvalDecisionComments}
+                            onChange={(event) => setApprovalDecisionComments(event.target.value)}
+                            rows={3}
+                            placeholder="Optional note for the requester or approval history"
+                            disabled={approvalDecisionSaving}
+                          />
+                        </label>
+                        <div className={styles.actionRow}>
+                          <button
+                            className={styles.dangerGhostAction}
+                            onClick={() => void handleApprovalDecision('denied')}
+                            disabled={approvalDecisionSaving}
+                          >
+                            {approvalDecisionSaving ? 'Saving...' : 'Deny'}
+                          </button>
+                          <button
+                            className={styles.primaryAction}
+                            onClick={() => void handleApprovalDecision('approved')}
+                            disabled={approvalDecisionSaving}
+                          >
+                            {approvalDecisionSaving ? 'Saving...' : 'Approve'}
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <p className={styles.detailValueMuted}>
+                        This approval request has already been {approvalReviewStatusText.toLowerCase()}.
+                      </p>
                     )}
                   </section>
                 )}
@@ -2978,4 +3537,19 @@ function formatEventRange(start: string, end: string): string {
   return endTime
     ? `${dateStr} · ${startTime} – ${endTime}`
     : `${dateStr} · ${startTime}`
+}
+
+function formatEventDateTime(value: string): string {
+  if (!value) return ''
+  const date = new Date(value)
+  if (isNaN(date.getTime())) return value
+
+  return date.toLocaleString('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
 }

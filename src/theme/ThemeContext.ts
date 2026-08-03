@@ -9,6 +9,7 @@ import {
 export interface ThemeContextValue {
   theme: AppTheme
   reservationLimits: ReservationLimits
+  publishedAppUrl: string
   loading: boolean
   reloadSettings: () => Promise<void>
 }
@@ -16,6 +17,7 @@ export interface ThemeContextValue {
 export const ThemeContext = createContext<ThemeContextValue>({
   theme: SFSU_DEFAULT_THEME,
   reservationLimits: DEFAULT_RESERVATION_LIMITS,
+  publishedAppUrl: '',
   loading: true,
   reloadSettings: async () => undefined,
 })
