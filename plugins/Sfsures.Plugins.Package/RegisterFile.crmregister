@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Register xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://schemas.microsoft.com/crm/2011/tools/pluginregistration">
+  <Solutions>
+    <Solution Assembly="Sfsures.Plugins.dll" Id="fdd7f909-1b8c-4dba-bb3a-fe5d1d01b328" IsolationMode="Sandbox" SourceType="Database">
+      <PluginTypes>
+        <clear />
+        <Plugin Description="Plug-in to Sfsures.Plugins.ReservationOccurrenceCreateGuard" FriendlyName="Sfsures.Plugins.ReservationOccurrenceCreateGuard" Name="Sfsures.Plugins.ReservationOccurrenceCreateGuard" Id="c5485780-b74f-4944-bb4d-7199e935454c" TypeName="Sfsures.Plugins.ReservationOccurrenceCreateGuard" />
+      </PluginTypes>
+    </Solution>
+  </Solutions>
+  <XamlWorkflows />
+  <DataProviders />
+</Register>

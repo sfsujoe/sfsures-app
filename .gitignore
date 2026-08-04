@@ -22,3 +22,9 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Visual Studio plug-in project artifacts
+**/.vs/
+**/bin/
+**/obj/
+!plugins/Sfsures.Plugins/Sfsures.Plugins.sln
