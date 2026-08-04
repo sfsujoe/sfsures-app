@@ -53,6 +53,16 @@ interface LogoCropSource {
   dataUrl: string
 }
 
+type TextSettingKey = 'appName' | 'publishedAppUrl'
+
+interface TextSettingDialog {
+  field: TextSettingKey
+  title: string
+  label: string
+  value: string
+  maxLength: number
+}
+
 interface AppSettingsLogoFields {
   sfsures_applogo?: string | null
 }
@@ -227,6 +237,13 @@ export function AppSettingsScreen() {
   const { reloadSettings } = useTheme()
   const [rowId, setRowId] = useState<string | null>(null)
   const [form, setForm] = useState<SettingsForm>(DEFAULT_FORM)
+  const [savedForm, setSavedForm] = useState<SettingsForm>(DEFAULT_FORM)
+  const [savedLogoUrl, setSavedLogoUrl] = useState(SFSU_DEFAULT_THEME.logoUrl)
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
+  const [textSettingDialog, setTextSettingDialog] = useState<TextSettingDialog | null>(null)
+  const [textSettingError, setTextSettingError] = useState('')
+  const [showResetDialog, setShowResetDialog] = useState(false)
+  const [resetConfirmationText, setResetConfirmationText] = useState('')
   const [currentLogoUrl, setCurrentLogoUrl] = useState(SFSU_DEFAULT_THEME.logoUrl)
   const [pendingLogo, setPendingLogo] = useState<PendingLogo | null>(null)
   const [logoCropSource, setLogoCropSource] = useState<LogoCropSource | null>(null)
@@ -268,12 +285,17 @@ export function AppSettingsScreen() {
         const row = result.data?.[0]
 
         if (!cancelled) {
+          const loadedForm = formFromRow(row)
+          const loadedLogoUrl = logoUrlFromRow(row, SFSU_DEFAULT_THEME.logoUrl)
           setRowId(row?.sfsures_appsettingsid ?? null)
-          setForm(formFromRow(row))
-          setCurrentLogoUrl(logoUrlFromRow(row, SFSU_DEFAULT_THEME.logoUrl))
+          setForm(loadedForm)
+          setSavedForm(loadedForm)
+          setCurrentLogoUrl(loadedLogoUrl)
+          setSavedLogoUrl(loadedLogoUrl)
           setPendingLogo(null)
           setLogoCropSource(null)
           setLogoResetRequested(false)
+          setHasUnsavedChanges(false)
           setLoadStatus('ready')
         }
       } catch (err) {
@@ -297,6 +319,7 @@ export function AppSettingsScreen() {
       ...current,
       [field]: value,
     }))
+    setHasUnsavedChanges(true)
     setStatus('')
   }
 
@@ -306,21 +329,109 @@ export function AppSettingsScreen() {
       ...current,
       selectedThemeName: preset.name,
     }))
+    setHasUnsavedChanges(true)
     setStatus('')
     setError('')
   }
 
-  function resetDefault() {
+  function discardChanges() {
+    setForm(savedForm)
+    setCurrentLogoUrl(savedLogoUrl)
+    setPendingLogo(null)
+    setLogoCropSource(null)
+    setLogoResetRequested(false)
+    setTextSettingDialog(null)
+    setTextSettingError('')
+    setShowResetDialog(false)
+    setResetConfirmationText('')
+    setHasUnsavedChanges(false)
+    setStatus('Changes discarded.')
+    setError('')
+    if (logoInputRef.current) {
+      logoInputRef.current.value = ''
+    }
+  }
+
+  function openResetDialog() {
+    setShowResetDialog(true)
+    setResetConfirmationText('')
+    setError('')
+    setStatus('')
+  }
+
+  function closeResetDialog() {
+    setShowResetDialog(false)
+    setResetConfirmationText('')
+  }
+
+  function applyResetDefault() {
+    if (resetConfirmationText !== 'RESET') {
+      return
+    }
+
     setForm(DEFAULT_FORM)
     setCurrentLogoUrl(SFSU_DEFAULT_THEME.logoUrl)
     setPendingLogo(null)
     setLogoCropSource(null)
     setLogoResetRequested(true)
+    setHasUnsavedChanges(true)
     if (logoInputRef.current) {
       logoInputRef.current.value = ''
     }
+    setShowResetDialog(false)
+    setResetConfirmationText('')
     setStatus('')
     setError('')
+  }
+
+  function openTextSettingDialog(field: TextSettingKey) {
+    if (field === 'appName') {
+      setTextSettingDialog({
+        field,
+        title: 'Edit App Name',
+        label: 'App Name',
+        value: form.appName,
+        maxLength: MAX_APP_NAME_LENGTH,
+      })
+    } else {
+      setTextSettingDialog({
+        field,
+        title: 'Edit Published App URL',
+        label: 'Published App URL',
+        value: form.publishedAppUrl,
+        maxLength: MAX_PUBLISHED_APP_URL_LENGTH,
+      })
+    }
+    setTextSettingError('')
+  }
+
+  function closeTextSettingDialog() {
+    setTextSettingDialog(null)
+    setTextSettingError('')
+  }
+
+  function updateTextSettingDialog(value: string) {
+    setTextSettingDialog((current) => (current ? { ...current, value } : current))
+    setTextSettingError('')
+  }
+
+  function applyTextSettingDialog() {
+    if (!textSettingDialog) return
+
+    const trimmedValue = textSettingDialog.value.trim()
+
+    if (textSettingDialog.field === 'appName' && !trimmedValue) {
+      setTextSettingError('App Name is required.')
+      return
+    }
+
+    if (trimmedValue.length > textSettingDialog.maxLength) {
+      setTextSettingError(`${textSettingDialog.label} is too long.`)
+      return
+    }
+
+    updateField(textSettingDialog.field, trimmedValue)
+    closeTextSettingDialog()
   }
 
   function handleLogoButtonClick() {
@@ -358,6 +469,7 @@ export function AppSettingsScreen() {
     setCurrentLogoUrl(logo.previewUrl)
     setLogoCropSource(null)
     setLogoResetRequested(false)
+    setHasUnsavedChanges(true)
     setStatus('')
     setError('')
   }
@@ -375,6 +487,13 @@ export function AppSettingsScreen() {
 
     const values = parsed.values
     const selectedPreset = themePresetByName(form.selectedThemeName)
+    const nextSavedForm: SettingsForm = {
+      appName: values.appName,
+      publishedAppUrl: values.publishedAppUrl,
+      selectedThemeName: selectedPreset.name,
+      maxOccurrences: String(values.maxOccurrences),
+      maxSpanWeeks: String(values.maxSpanWeeks),
+    }
     const payload = {
       sfsures_name: values.appName,
       sfsures_publishedappurl: values.publishedAppUrl || null,
@@ -442,6 +561,12 @@ export function AppSettingsScreen() {
           ? 'Settings saved.'
           : 'Settings saved, but the logo could not be updated. Confirm the App Logo image column exists and try again.'
       )
+      setForm(nextSavedForm)
+      setSavedForm(nextSavedForm)
+      if (logoUploaded) {
+        setSavedLogoUrl(currentLogoUrl)
+      }
+      setHasUnsavedChanges(!logoUploaded)
     } catch (err) {
       console.error('App Settings admin save failed:', err)
       setError(err instanceof Error ? err.message : 'App Settings could not be saved.')
@@ -472,7 +597,7 @@ export function AppSettingsScreen() {
             <p className={styles.panelMeta}>{rowId ? 'Active row' : 'New active row'}</p>
           </div>
           <div className={styles.panelActions}>
-            <button type="button" className={styles.secondaryButton} onClick={resetDefault}>
+            <button type="button" className={styles.secondaryButton} onClick={openResetDialog}>
               Reset to Default
             </button>
             <button type="submit" className={styles.primaryButton} disabled={saving}>
@@ -493,8 +618,23 @@ export function AppSettingsScreen() {
           </p>
         )}
 
+        {(hasUnsavedChanges || saving) && (
+          <div className={styles.unsavedBanner} role="status" aria-live="polite">
+            <span>
+              {saving
+                ? 'Saving settings. Keep this screen open until the save finishes.'
+                : 'Unsaved changes. Use Save to apply these settings.'}
+            </span>
+            {!saving && (
+              <button type="button" className={styles.unsavedDiscardButton} onClick={discardChanges}>
+                Discard Changes
+              </button>
+            )}
+          </div>
+        )}
+
         {loadStatus === 'error' && (
-          <button type="button" className={styles.secondaryButton} onClick={resetDefault}>
+          <button type="button" className={styles.secondaryButton} onClick={openResetDialog}>
             Use Defaults
           </button>
         )}
@@ -539,30 +679,34 @@ export function AppSettingsScreen() {
             </div>
 
             <div className={styles.fieldGrid}>
-              <label className={styles.fieldWide}>
+              <div className={styles.fieldWide}>
                 <span>App Name</span>
-                <input
-                  className={styles.input}
-                  type="text"
-                  maxLength={MAX_APP_NAME_LENGTH}
-                  value={form.appName}
-                  onChange={(event) => updateField('appName', event.target.value)}
-                />
-              </label>
-              <label className={styles.fieldWide}>
+                <div className={styles.readOnlySettingRow}>
+                  <span className={styles.readOnlySettingValue}>{form.appName}</span>
+                  <button
+                    type="button"
+                    className={styles.secondaryButton}
+                    onClick={() => openTextSettingDialog('appName')}
+                  >
+                    Edit
+                  </button>
+                </div>
+              </div>
+              <div className={styles.fieldWide}>
                 <span>Published App URL</span>
-                <input
-                  className={styles.input}
-                  type="url"
-                  maxLength={MAX_PUBLISHED_APP_URL_LENGTH}
-                  value={form.publishedAppUrl}
-                  placeholder="https://apps.powerapps.com/play/..."
-                  onChange={(event) => updateField('publishedAppUrl', event.target.value)}
-                />
-                <span className={styles.fieldHint}>
-                  Include hidenavbar=true before any approval route.
-                </span>
-              </label>
+                <div className={styles.readOnlySettingRow}>
+                  <span className={styles.readOnlySettingValue}>
+                    {form.publishedAppUrl || 'Not set'}
+                  </span>
+                  <button
+                    type="button"
+                    className={styles.secondaryButton}
+                    onClick={() => openTextSettingDialog('publishedAppUrl')}
+                  >
+                    Edit
+                  </button>
+                </div>
+              </div>
               <div className={styles.fieldWide}>
                 <span>App Logo</span>
                 <div className={styles.appLogoEditor}>
@@ -593,6 +737,7 @@ export function AppSettingsScreen() {
                         setPendingLogo(null)
                         setLogoCropSource(null)
                         setLogoResetRequested(true)
+                        setHasUnsavedChanges(true)
                         setStatus('')
                       }}
                     >
@@ -680,6 +825,108 @@ export function AppSettingsScreen() {
           </section>
         </div>
       </form>
+
+      {textSettingDialog && (
+        <div className={styles.modalBackdrop}>
+          <div
+            className={`${styles.adminModal} ${styles.smallTextModal}`}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="text-setting-dialog-title"
+          >
+            <div className={styles.modalHeader}>
+              <h2 id="text-setting-dialog-title">{textSettingDialog.title}</h2>
+            </div>
+            <div className={styles.modalBody}>
+              <label className={styles.fieldWide}>
+                <span>{textSettingDialog.label}</span>
+                {textSettingDialog.field === 'publishedAppUrl' ? (
+                  <textarea
+                    className={styles.textarea}
+                    maxLength={textSettingDialog.maxLength}
+                    value={textSettingDialog.value}
+                    autoFocus
+                    onChange={(event) => updateTextSettingDialog(event.target.value)}
+                  />
+                ) : (
+                  <input
+                    className={styles.input}
+                    type="text"
+                    maxLength={textSettingDialog.maxLength}
+                    value={textSettingDialog.value}
+                    autoFocus
+                    onChange={(event) => updateTextSettingDialog(event.target.value)}
+                  />
+                )}
+              </label>
+              {textSettingError && (
+                <p className={styles.errorBanner} role="alert">
+                  {textSettingError}
+                </p>
+              )}
+            </div>
+            <div className={styles.modalFooter}>
+              <span className={styles.modalFooterStatus} />
+              <div className={styles.modalFooterActions}>
+                <button type="button" className={styles.secondaryButton} onClick={closeTextSettingDialog}>
+                  Cancel
+                </button>
+                <button type="button" className={styles.primaryButton} onClick={applyTextSettingDialog}>
+                  Apply
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showResetDialog && (
+        <div className={styles.modalBackdrop}>
+          <div
+            className={`${styles.adminModal} ${styles.confirmModal}`}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="reset-settings-dialog-title"
+          >
+            <div className={styles.modalHeader}>
+              <h2 id="reset-settings-dialog-title">Reset App Settings</h2>
+            </div>
+            <div className={styles.modalBody}>
+              <p className={styles.confirmText}>
+                Resetting to defaults will replace the current App Name, Published App URL, theme,
+                logo, and reservation limit values on this screen. This does not save immediately;
+                you must still use Save to apply the reset.
+              </p>
+              <label className={styles.fieldWide}>
+                <span>Type RESET to continue</span>
+                <input
+                  className={styles.input}
+                  type="text"
+                  value={resetConfirmationText}
+                  autoFocus
+                  onChange={(event) => setResetConfirmationText(event.target.value)}
+                />
+              </label>
+            </div>
+            <div className={styles.modalFooter}>
+              <span className={styles.modalFooterStatus} />
+              <div className={styles.modalFooterActions}>
+                <button type="button" className={styles.secondaryButton} onClick={closeResetDialog}>
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className={styles.dangerButton}
+                  disabled={resetConfirmationText !== 'RESET'}
+                  onClick={applyResetDefault}
+                >
+                  Continue
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   )
 }
