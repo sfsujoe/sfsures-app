@@ -73,6 +73,7 @@
   <ItemGroup>
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="PluginBase.cs" />
+    <Compile Include="CreateReservationPlugin.cs" />
     <Compile Include="ReservationOccurrenceCreateGuard.cs" />
     <None Include="Sfsures.Plugins.snk" />
   </ItemGroup>

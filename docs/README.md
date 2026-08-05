@@ -2,11 +2,11 @@
 
 This folder is the local reference library for the SFSU Resource Reservation System, a Power Apps Code App built with React, TypeScript, Vite, FullCalendar, Office365Users, and Microsoft Dataverse. The app is intended to replace LabArchives Scheduler for SFSU resource booking, with a Dataverse-backed model for resources, reservations, blackout windows, group-scoped access, theming, audit logging, and per-department managed-solution replication.
 
-Last indexed: 2026-08-03.
+Last indexed: 2026-08-05.
 
-## Next Session: Approval End-to-End Test
+## Next Session: CreateReservation Custom API Registration
 
-Reservation approvals are implemented locally with a notification-only Power Automate flow and app-native approve/deny UI. Next session, start with [Deployment Runbook](sfsu_deployment_runbook.md), then run the controlled real-user approval test: publish/push the app if needed, set App Settings `Published App URL`, turn on the notification Flow, have a non-admin Booker submit an approval-required reservation, and verify App Admin approve/deny outcomes.
+The table-triggered Reservation Occurrence guard was unregistered after the security architecture pivot to Custom APIs, the first `sfsures_CreateReservation` contract is drafted, and the first single-create C# plug-in slice now compiles locally. `find-dataverse-api` returned no registered `sfsures_CreateReservation` action on 2026-08-05. Next session, start with [CreateReservation Custom API Contract Addendum](sfsu_create_reservation_custom_api_contract_addendum.md), then register the Custom API/action parameters in development Dataverse and generate the Code App client.
 
 ## Quick Project Shape
 
@@ -18,31 +18,34 @@ Reservation approvals are implemented locally with a notification-only Power Aut
 
 ## Recommended Reading Order
 
-1. [Deployment Runbook](sfsu_deployment_runbook.md) for rollout/replication steps, approval Flow setup, App Settings `Published App URL`, and approval end-to-end test criteria.
-2. [White Labeling and Reservable Hours Addendum](sfsu_white_label_and_reservable_hours_addendum.md) for the current App Settings title/logo behavior, Resource Type/Resource scoped reservable hours, calendar availability overlays, booking enforcement, and the approval-flow handoff that preceded this implementation.
-3. [Dataverse Plug-in Hardening Decision Addendum](sfsu_dataverse_plugin_hardening_addendum.md) for the selected synchronous plug-in hardening path, portability rationale, proposed guard boundary, and limitations.
-4. [Security Roles and Teams Addendum](sfsu_security_roles_and_teams_addendum.md) for the current enforcement model; it supersedes older role/team next steps.
-5. [Threat Model Addendum](sfsu_threat_model_addendum.md) for platform-enforced vs app-enforced rules, direct Dataverse API bypass risks, and accepted residuals.
-6. [Reports Viewer Polish and Visualizations Addendum](sfsu_reports_viewer_visualizations_addendum.md) for the current Reports viewer polish, Comments-column behavior, left-rail mode switch, SVG visualization mode, and remaining Reports follow-up.
-7. [Reports Screen and Saved Reports Addendum](sfsu_reports_screen_and_saved_reports_addendum.md) for the standalone Reports entry point, first reservation report screen, Saved Report table/data source, and original Reports implementation rationale.
-8. [Calendar Resource Filters and Admin IA Split Addendum](sfsu_calendar_resource_filters_and_admin_ia_split_addendum.md) for the current calendar Resource Type/View Resource filters, Resource Info modal, reserve handoff, BookingModal selector behavior, logo focus fix, and Admin Resource Types/Resources split.
-9. [Admin Blackouts Addendum](sfsu_admin_blackouts_addendum.md) for the implemented Admin Blackouts screen, blackout conflict/calendar terminology fixes, removal flow, and earlier Admin rail follow-up.
-10. [Help Site and Calendar Header Addendum](sfsu_help_site_and_calendar_header_addendum.md) for verified Custom Field display, Help/Gateway header polish, the standalone end-user help route, and the previous Blackouts handoff.
-11. [Dataverse Build Sheet](sfsu_dataverse_build_sheet.md) for the canonical base schema and the Blackout Window table; read newer addenda for the Reservation Attribute Value, Saved Report, Reservable Hour Window, and Reservation Approval Request extensions. Note: this file currently has copied project/export noise before the actual build-sheet heading; search for `Dataverse Build Sheet` if needed.
-12. [Generated Dataverse Name Fields Addendum](sfsu_generated_dataverse_name_fields_addendum.md) for the durable rule against selecting generated phantom custom `*name` fields.
-13. [Resource Attributes and Custom Fields Addendum](sfsu_resource_attributes_and_custom_fields_addendum.md) for Resource Attributes vs Custom Fields terminology, inheritance behavior, reservation answer persistence, and calendar detail display.
-14. [Group Permissions and Reservation Custom Fields Addendum](sfsu_group_permissions_and_reservation_custom_fields_addendum.md) for group-only permission behavior and the reservation-answer schema/data-source extension; its "not yet implemented" UI status is superseded by the newer addendum above.
-15. [UI Build Kickoff Addendum](sfsu_ui_build_kickoff_addendum.md) for the published base schema, generated service names, and Code App scaffold facts.
-16. [Booking Modal and Layout Fix Addendum](sfsu_booking_modal_and_layout_fix_addendum.md) for the current end-to-end booking MVP and Dataverse lookup conventions.
-17. [UI Branding and Booking Confirmation Polish Addendum](sfsu_ui_branding_and_booking_confirmation_addendum.md) for the current modal confirmation behavior, bundled SFSU logo/font defaults, and calendar visual polish.
-18. [Reservation Details, Comments, and Limits Addendum](sfsu_ui_reservation_details_comments_and_limits_addendum.md) for the current header/profile polish, reservation detail modal, comments, and App Settings-backed reservation limits.
-19. [Recurrence, App Permissions, and Calendar Actions Addendum](sfsu_recurrence_permissions_calendar_addendum.md) for current recurring reservation workflows, app-level group permissions, edit/delete reservation actions, and calendar-layout decisions.
-20. [Admin Theme, Users, Groups, and Audit Logging Addendum](sfsu_admin_theme_users_groups_audit_addendum.md) for the lazy admin shell, SFSU preset theming, resource calendar colors, and the earlier Users/Groups/audit implementation.
-21. [App User Dataverse Mapping and Safer Onboarding Addendum](sfsu_appuser_dataverse_mapping_and_onboarding_addendum.md) for the App User-to-System User lookup, fail-closed onboarding, and Add User confirmation.
-22. [Admin Resources Catalog and Photos Addendum](sfsu_admin_resources_catalog_addendum.md) for the earlier combined Resources admin screen, Resource Type inherited reservability, Resource Photo image upload/preview, inactive Resource Type reservability, and Resource data-source refresh notes.
-23. [Accessibility Tier 1 Addendum](sfsu_accessibility_tier1_addendum.md) for completed accessibility fixes and queued DPRC/WCAG work.
-24. [Environment and Demo Planning Addendum](sfsu_environment_and_demo_planning_addendum.md) for sandbox/production environment strategy and demo plan.
-25. Older planning and exploration docs are useful for rationale, but treat newer addenda above as current when they conflict.
+1. [Custom API Security Pivot Addendum](sfsu_custom_api_security_pivot_addendum.md) for the current reservation-write hardening direction, target User/Admin role model, retired table-step guard, and `sfsures_CreateReservation` Custom API plan.
+2. [CreateReservation Custom API Contract Addendum](sfsu_create_reservation_custom_api_contract_addendum.md) for the drafted API action shape, request/response fields, validation boundary, quota rules, SYSTEM-write behavior, test matrix, first Code App refactor slice, and current single-create plug-in implementation status.
+3. [Deployment Runbook](sfsu_deployment_runbook.md) for rollout/replication steps, approval Flow setup, App Settings `Published App URL`, and approval end-to-end test criteria.
+4. [White Labeling and Reservable Hours Addendum](sfsu_white_label_and_reservable_hours_addendum.md) for the current App Settings title/logo behavior, Resource Type/Resource scoped reservable hours, calendar availability overlays, booking enforcement, and the approval-flow handoff that preceded this implementation.
+5. [Security Roles and Teams Addendum](sfsu_security_roles_and_teams_addendum.md) for the current as-built three-role/three-team enforcement model; read the Custom API pivot for the selected future simplification.
+6. [Threat Model Addendum](sfsu_threat_model_addendum.md) for platform-enforced vs app-enforced rules, direct Dataverse API bypass risks, accepted residuals, and abuse scenarios that motivated the Custom API pivot.
+7. [Dataverse Plug-in Deployment and Testing Addendum](sfsu_dataverse_plugin_deployment_testing_addendum.md) for historical context on the first table-triggered Reservation Occurrence guard, which has since been unregistered.
+8. [Dataverse Plug-in Hardening Decision Addendum](sfsu_dataverse_plugin_hardening_addendum.md) for the earlier synchronous table plug-in decision; it is superseded for reservation writes by the Custom API pivot.
+9. [Reports Viewer Polish and Visualizations Addendum](sfsu_reports_viewer_visualizations_addendum.md) for the current Reports viewer polish, Comments-column behavior, left-rail mode switch, SVG visualization mode, and remaining Reports follow-up.
+10. [Reports Screen and Saved Reports Addendum](sfsu_reports_screen_and_saved_reports_addendum.md) for the standalone Reports entry point, first reservation report screen, Saved Report table/data source, and original Reports implementation rationale.
+11. [Calendar Resource Filters and Admin IA Split Addendum](sfsu_calendar_resource_filters_and_admin_ia_split_addendum.md) for the current calendar Resource Type/View Resource filters, Resource Info modal, reserve handoff, BookingModal selector behavior, logo focus fix, and Admin Resource Types/Resources split.
+12. [Admin Blackouts Addendum](sfsu_admin_blackouts_addendum.md) for the implemented Admin Blackouts screen, blackout conflict/calendar terminology fixes, removal flow, and earlier Admin rail follow-up.
+13. [Help Site and Calendar Header Addendum](sfsu_help_site_and_calendar_header_addendum.md) for verified Custom Field display, Help/Gateway header polish, the standalone end-user help route, and the previous Blackouts handoff.
+14. [Dataverse Build Sheet](sfsu_dataverse_build_sheet.md) for the canonical base schema and the Blackout Window table; read newer addenda for the Reservation Attribute Value, Saved Report, Reservable Hour Window, and Reservation Approval Request extensions. Note: this file currently has copied project/export noise before the actual build-sheet heading; search for `Dataverse Build Sheet` if needed.
+15. [Generated Dataverse Name Fields Addendum](sfsu_generated_dataverse_name_fields_addendum.md) for the durable rule against selecting generated phantom custom `*name` fields.
+16. [Resource Attributes and Custom Fields Addendum](sfsu_resource_attributes_and_custom_fields_addendum.md) for Resource Attributes vs Custom Fields terminology, inheritance behavior, reservation answer persistence, and calendar detail display.
+17. [Group Permissions and Reservation Custom Fields Addendum](sfsu_group_permissions_and_reservation_custom_fields_addendum.md) for group-only permission behavior and the reservation-answer schema/data-source extension; its "not yet implemented" UI status is superseded by the newer addendum above.
+18. [UI Build Kickoff Addendum](sfsu_ui_build_kickoff_addendum.md) for the published base schema, generated service names, and Code App scaffold facts.
+19. [Booking Modal and Layout Fix Addendum](sfsu_booking_modal_and_layout_fix_addendum.md) for the current end-to-end booking MVP and Dataverse lookup conventions.
+20. [UI Branding and Booking Confirmation Polish Addendum](sfsu_ui_branding_and_booking_confirmation_addendum.md) for the current modal confirmation behavior, bundled SFSU logo/font defaults, and calendar visual polish.
+21. [Reservation Details, Comments, and Limits Addendum](sfsu_ui_reservation_details_comments_and_limits_addendum.md) for the current header/profile polish, reservation detail modal, comments, and App Settings-backed reservation limits.
+22. [Recurrence, App Permissions, and Calendar Actions Addendum](sfsu_recurrence_permissions_calendar_addendum.md) for current recurring reservation workflows, app-level group permissions, edit/delete reservation actions, and calendar-layout decisions.
+23. [Admin Theme, Users, Groups, and Audit Logging Addendum](sfsu_admin_theme_users_groups_audit_addendum.md) for the lazy admin shell, SFSU preset theming, resource calendar colors, and the earlier Users/Groups/audit implementation.
+24. [App User Dataverse Mapping and Safer Onboarding Addendum](sfsu_appuser_dataverse_mapping_and_onboarding_addendum.md) for the App User-to-System User lookup, fail-closed onboarding, and Add User confirmation.
+25. [Admin Resources Catalog and Photos Addendum](sfsu_admin_resources_catalog_addendum.md) for the earlier combined Resources admin screen, Resource Type inherited reservability, Resource Photo image upload/preview, inactive Resource Type reservability, and Resource data-source refresh notes.
+26. [Accessibility Tier 1 Addendum](sfsu_accessibility_tier1_addendum.md) for completed accessibility fixes and queued DPRC/WCAG work.
+27. [Environment and Demo Planning Addendum](sfsu_environment_and_demo_planning_addendum.md) for sandbox/production environment strategy and demo plan.
+28. Older planning and exploration docs are useful for rationale, but treat newer addenda above as current when they conflict.
 
 ## Session Workflow
 
@@ -64,8 +67,11 @@ Reservation approvals are implemented locally with a notification-only Power Aut
 | [sfsu_booking_modal_and_layout_fix_addendum.md](sfsu_booking_modal_and_layout_fix_addendum.md) | Documents the working published booking loop, AccessGate identity fix, full-width layout fix, lookup read/write conventions, and remaining UI gaps. |
 | [sfsu_calendar_resource_filters_and_admin_ia_split_addendum.md](sfsu_calendar_resource_filters_and_admin_ia_split_addendum.md) | Documents the Admin Resource Types/Resources rail split, calendar Resource Type/View Resource filters, Resource Info modal/photo preview, reserve handoff, BookingModal filter/locked edit fields, and logo focus-area polish. |
 | [sfsu_codeapp_vscode_runbook_addendum.md](sfsu_codeapp_vscode_runbook_addendum.md) | Validates the VS Code + `npx power-apps` Code App path, generated Dataverse service use, and delegation-safe query pattern. |
+| [sfsu_create_reservation_custom_api_contract_addendum.md](sfsu_create_reservation_custom_api_contract_addendum.md) | Defines the drafted `sfsures_CreateReservation` Custom API action contract, including request/response fields, server validation boundary, quota rules, SYSTEM-write behavior, test matrix, and first Code App refactor slice. |
+| [sfsu_custom_api_security_pivot_addendum.md](sfsu_custom_api_security_pivot_addendum.md) | Documents the pivot from table-triggered reservation plug-ins to Custom API reservation writes, the target User/Admin role model, Code Apps CLI update, and next `sfsures_CreateReservation` contract work. |
 | [sfsu_dataverse_build_sheet.md](sfsu_dataverse_build_sheet.md) | Canonical reference for the original 14-table schema, ownership model, roles, and pre-publish checks; use the group-permissions/custom-fields addendum for the fifteenth-table extension. |
-| [sfsu_dataverse_plugin_hardening_addendum.md](sfsu_dataverse_plugin_hardening_addendum.md) | Documents the decision to use synchronous Dataverse plug-ins for reservation write hardening, including rationale, portability, proposed guards, and limitations. |
+| [sfsu_dataverse_plugin_deployment_testing_addendum.md](sfsu_dataverse_plugin_deployment_testing_addendum.md) | Historical note on the first deployed table-triggered Reservation Occurrence plug-in guard, its trace-log location, and the test-harness plan that was superseded by the Custom API pivot. |
+| [sfsu_dataverse_plugin_hardening_addendum.md](sfsu_dataverse_plugin_hardening_addendum.md) | Records the earlier synchronous table plug-in hardening decision; superseded for reservation writes by the Custom API Security Pivot Addendum. |
 | [sfsu_deployment_runbook.md](sfsu_deployment_runbook.md) | Step-by-step deployment/replication runbook covering environment setup, App Settings `Published App URL`, approval notification Flow setup, and approval smoke tests. |
 | [sfsu_docs_workflow_and_skills_addendum.md](sfsu_docs_workflow_and_skills_addendum.md) | Records the docs index strategy and the personal Codex skills for starting and closing SFSURES sessions. |
 | [sfsu_environment_and_demo_planning_addendum.md](sfsu_environment_and_demo_planning_addendum.md) | Captures environment inventory, sandbox/production ask, demo strategy, DoS/flooding analysis, and recovery controls. |
@@ -147,7 +153,7 @@ Current architecture:
 
 - Code App built in VS Code, not Vibe, using React/TypeScript/Vite and the Power Apps npm CLI.
 - Dataverse is the backend, with generated service/model files under `src/generated/`.
-- Synchronous Dataverse plug-ins are the selected server-side hardening path for reservation write enforcement; they should be packaged with the managed solution as assembly and step components when implemented.
+- Custom API-backed reservation commands are the selected server-side hardening path for ordinary reservation writes. The C# plug-in project remains useful as the Custom API implementation workspace, but the earlier table-triggered Reservation Occurrence guard is no longer the current direction.
 - Generated TypeScript models are helpful but not a complete `$select` contract; custom `sfsures_*name` fields that exist only on expanded interfaces must be verified or replaced with real table lookups.
 - Office365Users supplies the signed-in user's UPN; the app extracts the first 9 characters as SF State ID.
 - FullCalendar renders reservation occurrences, blackout windows, and Week/Day non-reservable availability overlays.
@@ -183,12 +189,12 @@ Current security model:
 - `APP_ADMINS` and `REPORT_VIEWERS` cannot have Resource Type permissions edited in the UI, and the runtime permission resolver ignores any permission rows attached to them.
 - Ordinary Resource visibility/booking permissions are group-based and Resource-Type-scoped; there is no active direct-user or direct-Resource permission path.
 - App sharing and Dataverse role/team membership must stay aligned; sharing wider than the teams may expand the API-accessible population.
-- Synchronous Dataverse plug-ins are now the chosen hardening direction for preventing invalid reservation writes made outside the app UI.
+- Target hardening direction is now Custom API-backed reservation writes: ordinary users should eventually execute constrained reservation commands and lose direct create/update/delete privileges on reservation write tables, while Admins may retain direct write access. The earlier Reservation Occurrence table plug-in step was unregistered in development.
 
 Known risks and accepted residuals:
 
-- Until plug-ins are implemented and registered, resource-scope checks, blackout enforcement, conflict detection, recurrence atomicity, write-once SF State ID, disable-not-delete, and single-active-theme remain app-enforced only.
-- Until plug-ins are implemented and registered, onboarded Bookers can discover schema metadata and may bypass app-layer resource checks through raw Dataverse API calls.
+- Current app reservation create/edit/cancel flows still use generated Dataverse table services, so ordinary direct table-write exposure remains until Custom APIs are implemented and roles are refactored.
+- Until the Custom API write path and target role model are implemented, onboarded Bookers can still discover schema metadata and may bypass some app-layer checks through raw Dataverse API calls.
 - Audit logs are tamper-resistant against edits/deletes but not injection-proof; reconciliation must compare system columns against app-written actor fields.
 - Missing read privileges can return empty `.data`, which can look like "no rows" unless screens handle it explicitly.
 - Booker own-record enforcement passed an initial non-admin published-runtime test on 2026-07-31; Viewer-only access and mid-session revocation still require testing.
@@ -218,6 +224,7 @@ Current MVP, based on the docs and source tree:
 - Group creation and group membership changes write Audit Log rows using `GroupCreated`, `GroupMemberAdded`, and `GroupMemberRemoved`, including hidden group key in `Target Key`.
 - Resource catalog create/edit/status/photo changes write `ResourceCatalogEdited` Audit Log rows.
 - Notification-only Power Automate approval email flow exists in concept and was manually tested by the user with Power Automate's Test button; full app-created approval submission testing is still pending.
+- C# plug-in infrastructure exists under `plugins/`; the first table-triggered `ReservationOccurrenceCreateGuard` step was proven and then unregistered after the Custom API security pivot. The source remains temporarily as reference/infrastructure while Custom API handlers are designed.
 - Tier 1 accessibility work is partly implemented: focus trap helper, dialog semantics, visible focus ring, keyboard booking path, and live regions.
 
 Future production work:
@@ -240,7 +247,7 @@ Future production work:
 - Optional calendar layout follow-up if native scrollbar arrow buttons remain distracting in the Power Apps/browser host.
 - Production and sandbox environment provisioning, managed-solution import/export, and production role creation confirmation.
 - Booker inheritance and own-record delete behavior passed an initial non-admin test; still test Viewer-only access, mid-session revocation, and broader pen-testing roadmap.
-- Synchronous Dataverse plug-in hardening for reservation writes, including a same-repo C# plug-in project, registered solution-packaged steps, and non-admin direct Web API tests.
+- Implement Custom API-backed reservation writes, starting with `sfsures_CreateReservation`; the first single-create C# plug-in slice compiles locally, but API registration, Code App generation/refactor, and broader create behaviors remain.
 - Nightly export flow, anomaly-alert flow, audit-log purge role, co-owner/ITS reassignment backstop, and Application Insights.
 
 ## Gaps, TODOs, and Questions
@@ -256,6 +263,7 @@ Future production work:
 - Decide later whether a repo-local `AGENTS.md` or `CLAUDE.md` is still needed; for now, personal skills plus this README cover startup and closeout.
 - Native scrollbar arrow buttons can still appear inside the calendar host; earlier CSS attempts were ineffective and should stay deferred unless layout changes make them easier to remove.
 - Continue calendar screen polish around top filter spacing, modal ergonomics, and date-range centering now that Resource Type and `View Resource` controls exist.
+- Revisit disabled Resource calendar behavior: disabling a Resource currently removes its existing reservations from the calendar, but the expected behavior may be "not bookable going forward" while existing/historical reservations remain visible.
 - Add SF State ID to report CSV output immediately to the right of Owner Email.
 - Decide whether the in-browser Reports grid should also show SF State ID near Owner Email.
 - Verify Reports CSV download, SVG image download, Visualization mode rendering, Comments expansion, and Clear Selections behavior in the published Power Apps runtime.
@@ -265,7 +273,7 @@ Future production work:
 - Verify App Settings App Name/logo upload and Resource Type/Resource scoped Reservable Hours in the published Power Apps runtime, including multiple windows per day, non-admin blocking, admin override confirmation, and the Show on calendar handoff.
 - Verify App Settings `Published App URL` in each published app instance so approval emails use the production URL instead of local/test URLs.
 - Secondary and destructive button colors are currently hard-coded semantic CSS; only primary/action branding is consistently theme-driven.
-- Series edit/delete currently uses sequential Dataverse writes, not a true transaction. Keep this accepted MVP limitation visible until a custom API/plugin/app-only backend is in scope.
+- Series edit/delete currently uses sequential Dataverse writes, not a true transaction. Keep this accepted MVP limitation visible until the Custom API write path covers those commands.
 - Add a recurring-series "cancel future events" workflow in addition to the implemented occurrence and whole-series actions.
 - Verify group audit writes end-to-end in the published Power Apps runtime with the real Audit Log security role settings.
 - Verify Resource photo upload, thumbnail display, full-size preview, and replacement in the published Power Apps runtime against real Dataverse image rows.
@@ -279,6 +287,6 @@ Future production work:
 - Test Viewer-only permissions before initial rollout.
 - Measure mid-session revocation behavior after removing a user from an Owner team.
 - Confirm the production Flow owner/co-owner or service-account strategy before first production rollout.
-- Draft the synchronous Dataverse plug-in step matrix for Reservation Occurrence, Reservation Series, and Reservation Attribute Value.
-- Decide whether plug-in hardening is required before first non-pilot replication or can ship as SFSURES v2.0.
+- `sfsures_CreateReservation` contract is drafted and the first single-create plug-in slice compiles locally; next step is Custom API registration/client generation, followed by reservable-hours, approval, and custom-field server-side slices.
+- Decide exact anti-volume quota rules before first non-pilot replication.
 - Add reconciliation/export flows as recovery and forensics layers; do not treat them as replacements for plug-in enforcement.
